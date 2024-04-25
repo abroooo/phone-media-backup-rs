@@ -1,6 +1,27 @@
 # phone-media-backup-rs
 
+## Pitch
+
 app to sync image from android phone to server
+
+## 🔌 assumptions
+
+## ✨ Features
+
+- 💾 backup photos and videos
+- 📁 automatic sorting into directory structure
+- 🔎 exif data based sorting
+- 📆 only backup new files
+
+## ⚡️ Requirements
+- sshfs
+- ssh access to phone (https://www.galexander.org/software/simplesshd) 
+
+## ⚙️ Configuration
+
+## 🚀 Usage
+
+## 🪓 TODO
 
 - [ ] mount fs
 - [x] get start date via ssh
@@ -9,16 +30,3 @@ app to sync image from android phone to server
 - [ ] set marker
 - [ ] add config
 - [ ] add cli interface
-
-✨ Features
-- 💾 backup photos and videos
-- 📁 automatic sorting into directory structure
-
-⚡️ Requirements
-- sshfs
-- ssh access to phone (https://www.galexander.org/software/simplesshd) 
-
-⚙️ Configuration
-
-🚀 Usage
-
