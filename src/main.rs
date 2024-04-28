@@ -14,6 +14,7 @@ use std::time::SystemTime;
 use exif::{DateTime, In, Reader, Tag, Value};
 
 use md5::{Digest, Md5};
+use chrono::{NaiveDateTime, NaiveDate};
 
 fn compare_files(file1_path: &str, file2_path: &str) -> std::io::Result<bool> {
     let mut file1 = File::open(file1_path)?;
@@ -74,18 +75,22 @@ fn move_file(dloc: DateLoc) {
     let _ = std::fs::create_dir_all(&dest_dir);
 
     // println!("{}", filename);
-    let _ = std::fs::copy(&dloc.source, &dest_file);
-    let _ = compare_files(&dloc.source, &dest_file);
-    // let source_md5 = calculate_md5(&dloc.source);
-    // let dest_md5 = calculate_md5(&dest_file);
-    //   if source_md5 == dest_md5 {
-    //     println!("Files are identical.");
-    // } else {
-    //     println!("Files are different.");
-    // }
-    let metadata = std::fs::metadata(&dloc.source).unwrap();
-    let _ = set_file_times(&dest_file, metadata);
-    println!("move {} to {}", dloc.source, dest_file);
+    if Path::new(&dest_file).exists() && compare_files(&dloc.source, &dest_file).unwrap(){
+        println!("exists!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
+    }else{
+        let _ = std::fs::copy(&dloc.source, &dest_file);
+        let _ = compare_files(&dloc.source, &dest_file);
+        // let source_md5 = calculate_md5(&dloc.source);
+        // let dest_md5 = calculate_md5(&dest_file);
+        //   if source_md5 == dest_md5 {
+        //     println!("Files are identical.");
+        // } else {
+        //     println!("Files are different.");
+        // }
+        let metadata = std::fs::metadata(&dloc.source).unwrap();
+        let _ = set_file_times(&dest_file, metadata);
+        println!("move {} to {}", dloc.source, dest_file);
+    }
 }
 
 struct DateLoc {
@@ -109,6 +114,26 @@ fn main() {
     // let remote_user = "your_username";
     // let private_key_path = "/path/to/your/private_key";
     let private_key_path = Path::new(private_key_path);
+    
+
+    // mount sshfs
+    let port = "2222"; // Replace with your port number
+    let path = remote_host.to_string() + ":/sdcard/DCIM/Camera"; // Replace with your remote path
+    let mountpoint = "/home/user/sshmount"; // Replace with your local mountpoint
+
+    let output = Command::new("sshfs")
+        .arg("-p")
+        .arg(port)
+        .arg(path)
+        .arg(mountpoint)
+        .output()
+        .expect("Failed to execute command");
+
+    if !output.status.success() {
+        eprintln!("Command executed with error: {}", String::from_utf8_lossy(&output.stderr));
+    } else {
+        println!("Command executed successfully: {}", String::from_utf8_lossy(&output.stdout));
+    }
 
     // Connect to the remote SSH server
     let tcp = TcpStream::connect(format!("{}:2222", remote_host)).unwrap();
@@ -150,73 +175,91 @@ fn main() {
 
     // #################################################
     // save files
-    let baseDir = "/home/user/sshmount/";
-    for f in file_names {
-        let path_name = (baseDir.to_owned() + f.as_ref());
+    let base_dir = "/home/user/sshmount/";
+    let mut latest_date: NaiveDateTime = Default::default();
+    for base_name in file_names {
+        let path_name = base_dir.to_owned() + base_name.as_ref();
         // println!("name: {}", path_name);
-        println!(
-            "filesize: {}",
-            std::path::PathBuf::from(path_name)
-                .metadata()
-                .unwrap()
-                .len()
-        );
+        let fsize = std::path::PathBuf::from(&path_name)
+            .metadata()
+            .unwrap()
+            .len();
+        println!("filesize: {}", fsize);
+        let t = path_name;
+        let x = get_extension_from_filename(&t);
+        match x {
+            Some(x) => match x {
+                "jpg" => {
+                    println!("{:?}", &t);
+                    let file = File::open(&t.to_string()).unwrap();
+                    let exif = Reader::new()
+                        .read_from_container(&mut BufReader::new(&file))
+                        .unwrap();
+                    if let Some(field) = exif.get_field(Tag::DateTime, In::PRIMARY) {
+                        match field.value {
+                            Value::Ascii(ref vec) if !vec.is_empty() => {
+                                if let Ok(datetime) = DateTime::from_ascii(&vec[0]) {
+                                    // println!("Year of DateTime is {}.", &datetime.year);
+                                    // println!("Month of DateTime is {:02}.", &datetime.month);
+                                    // println!("Day of DateTime is {}.", datetime.day);
+                                    // println!("{}", &datetime.to_string());
+                                    let datetime_native = NaiveDateTime::parse_from_str(
+                                        &datetime.to_string(),
+                                        "%Y-%m-%d %H:%M:%S",
+                                    )
+                                    .unwrap();
+                                    if datetime_native > latest_date{
+                                        latest_date = datetime_native;
+                                    }
+                                    // move_file(DateLoc {
+                                    //     year: datetime.year.to_string(),
+                                    //     month: format!("{:02}", datetime.month),
+                                    //     source: t.to_string(),
+                                    //     base_name: base_name.to_string(),
+                                    // });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "mp4" => {
+                    println!("{:?}", &t);
+                    let re = regex::Regex::new(r"\d{8}").unwrap();
+                    if let Some(date_match) = re.find(&t) {
+                        let year: String = date_match.as_str().chars().take(4).collect();
+                        let month: String = date_match.as_str().chars().skip(4).take(2).collect();
+                        println!("year: {}", &year.to_string());
+                        println!("month: {}", &month.to_string());
+                        // move_file(DateLoc {
+                        // year: year.to_string(),
+                        // month: month.to_string(),
+                        // source: t.to_string(),
+                        // base_name: base_name.to_string(),
+                        // });
+                    } else {
+                        println!("No date found in the string.");
+                    }
+                }
+                _ => {
+                    println!("dont care");
+                }
+            },
+            None => {
+                println!("dont care {}", t);
+            }
+        }
     }
-    // for entry in std::fs::read_dir("/home/user/sshmount").unwrap() {
-    //     let tmp = &entry.as_ref().unwrap().path();
-    //     let base_name = &entry.unwrap().path().file_name().unwrap().to_owned();
-    //     let t = tmp.to_string_lossy().to_owned();
-    //     let x = get_extension_from_filename(&t);
-    //     match x {
-    //         Some(x) => {
-    //             match x {
-    //                 "jpg" => {
-    //                     println!("{:?}", &t);
-    //                     let file = File::open(&t.to_string()).unwrap();
-    //                     let exif = Reader::new().read_from_container(
-    //                         &mut BufReader::new(&file)).unwrap();
-    //                     if let Some(field) = exif.get_field(Tag::DateTime, In::PRIMARY) {
-    //                         match field.value {
-    //                             Value::Ascii(ref vec) if !vec.is_empty() => {
-    //                                 if let Ok(datetime) = DateTime::from_ascii(&vec[0]) {
-    //                                     println!("Year of DateTime is {}.", &datetime.year);
-    //                                     println!("Month of DateTime is {:02}.", &datetime.month);
-    //                                     // println!("Day of DateTime is {}.", datetime.day);
-    //                                     move_file(DateLoc{year: datetime.year.to_string(),
-    //                                                         month: format!("{:02}", datetime.month),
-    //                                                         source: t.to_string(),
-    //                                                         base_name: base_name.to_str().unwrap().to_string()});
-    //                                 }
-    //                             },
-    //                             _ => {},
-    //                         }
-    //                     }
-    //                 }
-    //                 "mp4" => {
-    //                     println!("{:?}", &t);
-    //                     let re = regex::Regex::new(r"\d{8}").unwrap();
-    //                     if let Some(date_match) = re.find(&t) {
-    //                         let year: String = date_match.as_str().chars().take(4).collect();
-    //                         let month: String = date_match.as_str().chars().skip(4).take(2).collect();
-    //                         println!("year: {}",&year.to_string());
-    //                         println!("month: {}",&month.to_string());
-    //                                     move_file(DateLoc{year: year.to_string(),
-    //                                                         month: month.to_string(),
-    //                                                         source: t.to_string(),
-    //                                                         base_name: base_name.to_str().unwrap().to_string()});
-    //                     } else {
-    //                         println!("No date found in the string.");
-    //                     }
-    //                 }
-    //                 _ => {
-    //                     println!("dont care");
-    //                 }
-    //             }
-    //         }
-    //         None => {
-    //             println!("dont care {}",t);
-    //         }
-    //     }
-    //
-    // }
+    let new_marker = latest_date.format("%Y-%m-%d").to_string();
+    println!("Latest date {}", &new_marker);
+    let output = Command::new("umount")
+        .arg(mountpoint)
+        .output()
+        .expect("Failed to execute command");
+
+    if !output.status.success() {
+        eprintln!("Command executed with error: {}", String::from_utf8_lossy(&output.stderr));
+    } else {
+        println!("Command executed successfully: {}", String::from_utf8_lossy(&output.stdout));
+    }
 }

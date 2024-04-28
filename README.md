@@ -23,10 +23,10 @@ app to sync image from android phone to server
 
 ## 🪓 TODO
 
-- [ ] mount fs
+- [x] mount fs
 - [x] get start date via ssh
 - [x] get list of files to backup
-- [ ] backup files
+- [x] backup files
 - [ ] set marker
 - [ ] add config
 - [ ] add cli interface
