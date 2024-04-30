@@ -28,5 +28,7 @@ app to sync image from android phone to server
 - [x] get list of files to backup
 - [x] backup files
 - [ ] set marker
-- [ ] add config
+- [x] add config
 - [ ] add cli interface
+- [ ] optionally delete files older than X days
+- [ ] logging

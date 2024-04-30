@@ -1,6 +1,7 @@
 use ssh2::Session;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 extern crate exif;
 
@@ -8,13 +9,40 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
 use std::time::SystemTime;
 
 use exif::{DateTime, In, Reader, Tag, Value};
 
+use chrono::{NaiveDate, NaiveDateTime};
 use md5::{Digest, Md5};
-use chrono::{NaiveDateTime, NaiveDate};
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct MyConfig {
+    general: General,
+    source: Source,
+    destination: Destination,
+}
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct Source {
+    ip: String,
+    port: i32,
+    cert: String,
+    path: String,
+    clean: Clean,
+}
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct Destination {
+    path: String,
+}
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct General {
+    mountpoint: String,
+}
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct Clean {
+    older_than_days: String,
+}
 
 fn compare_files(file1_path: &str, file2_path: &str) -> std::io::Result<bool> {
     let mut file1 = File::open(file1_path)?;
@@ -64,20 +92,26 @@ fn move_file(dloc: DateLoc) {
     // let destination_base = "/home/user/dev/rust/media_backup/test_destination";
     // let destination_base = "/mnt/backup/photos";
     let destination_base = "/home/user/tmp";
-    let dest_dir = [destination_base, &dloc.year, &dloc.month].join("/");
+    let destination_base = &dloc.destination_base.as_str();
+    let dest_dir = [
+        destination_base.to_string(),
+        dloc.year.to_string(),
+        dloc.month.to_string(),
+    ]
+    .join("/");
     let dest_file = [
-        destination_base,
-        &dloc.year,
-        &dloc.month.to_string(),
-        &dloc.base_name,
+        destination_base.to_string(),
+        dloc.year.to_string(),
+        dloc.month.to_string(),
+        dloc.base_name,
     ]
     .join("/");
     let _ = std::fs::create_dir_all(&dest_dir);
 
     // println!("{}", filename);
-    if Path::new(&dest_file).exists() && compare_files(&dloc.source, &dest_file).unwrap(){
+    if Path::new(&dest_file).exists() && compare_files(&dloc.source, &dest_file).unwrap() {
         println!("exists!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
-    }else{
+    } else {
         let _ = std::fs::copy(&dloc.source, &dest_file);
         let _ = compare_files(&dloc.source, &dest_file);
         // let source_md5 = calculate_md5(&dloc.source);
@@ -98,67 +132,78 @@ struct DateLoc {
     year: String,
     source: String,
     base_name: String,
+    destination_base: String,
 }
 
 fn main() {
     // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
     //     .spawn();
+    let cfg: MyConfig =
+        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
+    dbg!(&cfg);
+    println!("{}", cfg.source.ip);
 
     // create ssh session
-    let remote_host = "192.168.1.10";
     let remote_user = "user";
-    let remote_file_path = "/sdcard/DCIM/Camera/IMG_20231022_124817.jpg";
-    let local_file_path = "file.jpg";
-    let private_key_path = "/home/user/.ssh/id_ed25519";
     // let remote_host = "1.1.0.2";
     // let remote_user = "your_username";
     // let private_key_path = "/path/to/your/private_key";
-    let private_key_path = Path::new(private_key_path);
-    
+    let private_key_path = Path::new(&cfg.source.cert);
 
     // mount sshfs
     let port = "2222"; // Replace with your port number
-    let path = remote_host.to_string() + ":/sdcard/DCIM/Camera"; // Replace with your remote path
-    let mountpoint = "/home/user/sshmount"; // Replace with your local mountpoint
+    let path = cfg.source.ip.to_string() + ":/sdcard/DCIM/Camera"; // Replace with your remote path
 
     let output = Command::new("sshfs")
         .arg("-p")
-        .arg(port)
+        .arg(&cfg.source.port.to_string())
         .arg(path)
-        .arg(mountpoint)
+        .arg(&cfg.general.mountpoint)
         .output()
         .expect("Failed to execute command");
 
     if !output.status.success() {
-        eprintln!("Command executed with error: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "Command executed with error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     } else {
-        println!("Command executed successfully: {}", String::from_utf8_lossy(&output.stdout));
+        println!(
+            "Command executed successfully: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 
     // Connect to the remote SSH server
-    let tcp = TcpStream::connect(format!("{}:2222", remote_host)).unwrap();
+    let tcp = TcpStream::connect(format!("{}:{}", &cfg.source.ip, &cfg.source.port)).unwrap();
     let mut sess = Session::new().unwrap();
     sess.set_tcp_stream(tcp);
     sess.handshake().unwrap();
 
     // Authenticate using a certificate (public key)
-    sess.userauth_pubkey_file(remote_user, None, private_key_path, None)
-        .unwrap();
+    sess.userauth_pubkey_file(
+        remote_user,
+        None,
+        PathBuf::from(&cfg.source.cert).as_path(),
+        None,
+    )
+    .unwrap();
 
     // Check if authentication was successful
     assert!(sess.authenticated());
 
     // #################################################
     // get start date and build command
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
     let mut channel = sess.channel_session().unwrap();
     channel
-        .exec("cd /sdcard/DCIM/Camera && cat marker")
+        .exec(&cmd)
         // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
         .unwrap();
     let mut s = String::new();
     channel.read_to_string(&mut s).unwrap();
     println!("{}", &s);
-    let command = "cd /sdcard/DCIM/Camera && find . -type f -newermt ".to_owned() + &s;
+    let command = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &s;
     println!("Command to run:\n{}", &command);
 
     // #################################################
@@ -175,8 +220,9 @@ fn main() {
 
     // #################################################
     // save files
-    let base_dir = "/home/user/sshmount/";
+    let base_dir = &cfg.general.mountpoint;
     let mut latest_date: NaiveDateTime = Default::default();
+    let mut totalsize: u64 = 0;
     for base_name in file_names {
         let path_name = base_dir.to_owned() + base_name.as_ref();
         // println!("name: {}", path_name);
@@ -184,12 +230,13 @@ fn main() {
             .metadata()
             .unwrap()
             .len();
+        totalsize = totalsize + fsize;
         println!("filesize: {}", fsize);
         let t = path_name;
         let x = get_extension_from_filename(&t);
         match x {
             Some(x) => match x {
-                "jpg" => {
+                "jpg" | "dng" => {
                     println!("{:?}", &t);
                     let file = File::open(&t.to_string()).unwrap();
                     let exif = Reader::new()
@@ -208,15 +255,16 @@ fn main() {
                                         "%Y-%m-%d %H:%M:%S",
                                     )
                                     .unwrap();
-                                    if datetime_native > latest_date{
+                                    if datetime_native > latest_date {
                                         latest_date = datetime_native;
                                     }
-                                    // move_file(DateLoc {
-                                    //     year: datetime.year.to_string(),
-                                    //     month: format!("{:02}", datetime.month),
-                                    //     source: t.to_string(),
-                                    //     base_name: base_name.to_string(),
-                                    // });
+                                    move_file(DateLoc {
+                                        year: datetime.year.to_string(),
+                                        month: format!("{:02}", datetime.month),
+                                        source: t.to_string(),
+                                        base_name: base_name.to_string(),
+                                        destination_base: cfg.destination.path.to_owned(),
+                                    });
                                 }
                             }
                             _ => {}
@@ -231,12 +279,13 @@ fn main() {
                         let month: String = date_match.as_str().chars().skip(4).take(2).collect();
                         println!("year: {}", &year.to_string());
                         println!("month: {}", &month.to_string());
-                        // move_file(DateLoc {
-                        // year: year.to_string(),
-                        // month: month.to_string(),
-                        // source: t.to_string(),
-                        // base_name: base_name.to_string(),
-                        // });
+                        move_file(DateLoc {
+                            year: year.to_string(),
+                            month: month.to_string(),
+                            source: t.to_string(),
+                            base_name: base_name.to_string(),
+                            destination_base: cfg.destination.path.to_owned(),
+                        });
                     } else {
                         println!("No date found in the string.");
                     }
@@ -249,17 +298,54 @@ fn main() {
                 println!("dont care {}", t);
             }
         }
+        println!("_________________________________________________________________________________________");
     }
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
     println!("Latest date {}", &new_marker);
     let output = Command::new("umount")
-        .arg(mountpoint)
+        .arg(&cfg.general.mountpoint)
         .output()
         .expect("Failed to execute command");
 
     if !output.status.success() {
-        eprintln!("Command executed with error: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "Command executed with error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     } else {
-        println!("Command executed successfully: {}", String::from_utf8_lossy(&output.stdout));
+        println!(
+            "Command executed successfully: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
+    // #################################################
+    // set marker to latest date
+    println!("Set marker");
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
+    let mut channel = sess.channel_session().unwrap();
+    channel
+        .exec(&cmd)
+        // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
+        .unwrap();
+    println!("marker set!");
+    println!("Total size: {}", &totalsize);
+    println!("Total size: {}", totalsize / 1024 / 1024);
+
+    // delete files older than 60 days
+    // find . -type f -mtime +60 -exec rm -f {} \;
+    let cmd = "cd ".to_owned()
+        + &cfg.source.path
+        + " && find . -type f -mtime +"
+        + &cfg.source.clean.older_than_days
+    // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
+    // deletion
+        + " -exec file {} \\;";
+    let mut channel = sess.channel_session().unwrap();
+    channel
+        .exec(&cmd)
+        // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
+        .unwrap();
+    let mut s = String::new();
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", &s);
 }
