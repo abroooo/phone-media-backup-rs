@@ -15,6 +15,7 @@ md-5 = "0.10.6"
 serde_json = "1.0.116"
 serde_derive = "1.0.199"
 serde = "1.0.199"
+indicatif = "0.17.8"
 
 [dependencies.confy]
 features = ["yaml_conf"]
