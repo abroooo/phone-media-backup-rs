@@ -27,33 +27,21 @@ fn main() {
     dbg!(&cfg);
     println!("{}", cfg.source.ip);
 
-    let sess = ssh::get_session(&cfg);
+    // let sess = ssh::get_session(&cfg);
+    let sess = ssh::Ssh::new(&cfg);
 
     // #################################################
     // get start date and build command
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
-    let mut channel = sess.channel_session().unwrap();
-    channel
-        .exec(&cmd)
-        // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
-        .unwrap();
-    let mut s = String::new();
-    channel.read_to_string(&mut s).unwrap();
-    println!("{}", &s);
-    let command = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &s;
-    println!("Command to run:\n{}", &command);
+    let marker = sess.execute_command(cmd);
+
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
+    let list_of_files = sess.execute_command(cmd);
 
     // #################################################
     // get list of files to copy
 
-    // create a new channel since the old one cannot be reused
-    let mut channel = sess.channel_session().unwrap();
-    // TODO: handle unwrap
-    channel.exec(&command).unwrap();
-    let mut s = String::new();
-    // TODO: handle unwrap
-    channel.read_to_string(&mut s).unwrap();
-    let file_names: Vec<&str> = s.split('\n').collect();
+    let file_names: Vec<&str> = list_of_files.split('\n').collect();
 
     // #################################################
     // save files
@@ -161,16 +149,12 @@ fn main() {
     // set marker to latest date
     println!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
-    let mut channel = sess.channel_session().unwrap();
-    channel
-        .exec(&cmd)
-        // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
-        .unwrap();
+    let marker = sess.execute_command(cmd);
     println!("marker set!");
     println!("Total size: {}", &totalsize);
     println!("Total size: {}", totalsize / 1024 / 1024);
 
-    // delete files older than 60 days
+    // // delete files older than 60 days
     // find . -type f -mtime +60 -exec rm -f {} \;
     let cmd = "cd ".to_owned()
         + &cfg.source.path
@@ -179,13 +163,6 @@ fn main() {
     // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
     // deletion
         + " -exec file {} \\;";
-    let mut channel = sess.channel_session().unwrap();
-    channel
-        .exec(&cmd)
-        // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
-        .unwrap();
-    let mut s = String::new();
-    channel.read_to_string(&mut s).unwrap();
-    println!("{}", &s);
+    let res = sess.execute_command(cmd);
     bar.finish();
 }
