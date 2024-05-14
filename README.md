@@ -27,8 +27,10 @@ app to sync image from android phone to server
 - [x] get start date via ssh
 - [x] get list of files to backup
 - [x] backup files
-- [ ] set marker
+- [x] set marker
 - [x] add config
 - [ ] add cli interface
+- [ ] add info option (stats about the source, last backup ...)
+- [ ] add verify option (check that all files in source are present at destination)
 - [ ] optionally delete files older than X days
 - [ ] logging
