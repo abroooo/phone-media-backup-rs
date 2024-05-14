@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
 use ssh2::Session;
-        use std::fs::File;
-        use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 extern crate exif;
 use indicatif::ProgressBar;
@@ -14,164 +14,17 @@ use std::time::SystemTime;
 use exif::{DateTime, In, Reader, Tag, Value};
 
 use chrono::{NaiveDate, NaiveDateTime};
-use serde_derive::{Deserialize, Serialize};
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct MyConfig {
-    general: General,
-    source: Source,
-    destination: Destination,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct Source {
-    ip: String,
-    port: i32,
-    cert: String,
-    path: String,
-    clean: Clean,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct Destination {
-    path: String,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct General {
-    mountpoint: String,
-}
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct Clean {
-    older_than_days: String,
-}
-
-mod file {
-    use std::path::{Path, PathBuf};
-    use std::fs::File;
-    use std::io::{Cursor, Read, Seek, SeekFrom};
-    use crate::helpers;
-    
-    pub enum CompareMode{
-       Lazy,
-       Strict
-    }
-
-    pub fn compare_files(source: &str, destination: &str, mode: CompareMode) -> std::io::Result<bool> {
-        match mode{
-            CompareMode::Lazy => {
-                println!("lazy check");
-                if Path::new(&destination).exists()  {
-                    println!("files are identical");
-                    return Ok(true)
-                }
-                Ok(false)
-            },
-            CompareMode::Strict => {
-                println!("strict check");
-                if Path::new(&destination).exists()  {
-                    return Ok(false)
-                }
-                let mut file1 = File::open(source)?;
-                let mut file2 = File::open(destination)?;
-
-                let mut buffer1 = [0; 4096];
-                let mut buffer2 = [0; 4096];
-
-                loop {
-                    let bytes_read1 = file1.read(&mut buffer1)?;
-                    let bytes_read2 = file2.read(&mut buffer2)?;
-
-                    if bytes_read1 != bytes_read2 || buffer1[..bytes_read1] != buffer2[..bytes_read2] {
-                        return Ok(false);
-                    }
-
-                    if bytes_read1 == 0 {
-                        break;
-                    }
-                }
-                println!("files are identical");
-
-                Ok(true)
-            }
-        }
-    }
-    pub fn move_file(dloc: crate::helpers::DateLoc) {
-        let destination_base = &dloc.destination_base.as_str();
-        let dest_dir = [
-            destination_base.to_string(),
-            dloc.year.to_string(),
-            dloc.month.to_string(),
-        ]
-            .join("/");
-        let dest_file = [
-            destination_base.to_string(),
-            dloc.year.to_string(),
-            dloc.month.to_string(),
-            dloc.base_name,
-        ]
-            .join("/");
-        let _ = std::fs::create_dir_all(&dest_dir);
-
-        // println!("{}", filename);
-        if compare_files(&dloc.source, &dest_file, CompareMode::Lazy).unwrap() {
-            println!("exists!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
-        } else {
-            let _ = std::fs::copy(&dloc.source, &dest_file);
-            let _ = compare_files(&dloc.source, &dest_file, CompareMode::Strict);
-            // let source_md5 = calculate_md5(&dloc.source);
-            // let dest_md5 = calculate_md5(&dest_file);
-            //   if source_md5 == dest_md5 {
-            //     println!("Files are identical.");
-            // } else {
-            //     println!("Files are different.");
-            // }
-            let metadata = std::fs::metadata(&dloc.source).unwrap();
-            let _ = helpers::set_file_times(&dest_file, metadata);
-            println!("move {} to {}", dloc.source, dest_file);
-        }
-    }
-}
-
-mod helpers {
-    use md5::{Digest, Md5};
-    use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
-    use std::fs::File;
-    use std::io::{Cursor, Read, Seek, SeekFrom};
-
-    pub struct DateLoc {
-        pub month: String,
-        pub year: String,
-        pub source: String,
-        pub base_name: String,
-        pub destination_base: String,
-    }
-    pub fn set_file_times(dest_file: &str, metadata: std::fs::Metadata) -> std::io::Result<()> {
-        filetime::set_file_times(
-            &dest_file,
-            filetime::FileTime::from_last_access_time(&metadata),
-            filetime::FileTime::from_last_modification_time(&metadata),
-            )?;
-        Ok(())
-    }
-    pub fn calculate_md5(filename: &str) -> Vec<u8> {
-        let mut file = File::open(filename).expect("Unable to open file");
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).expect("Unable to read file");
-        let mut hasher = Md5::new();
-        hasher.update(&buffer);
-        hasher.finalize().to_vec()
-    }
-    pub fn get_extension_from_filename(filename: &str) -> Option<&str> {
-        Path::new(filename).extension().and_then(OsStr::to_str)
-    }
-}
 
 
+mod config;
+mod file;
+mod helpers;
 
 fn main() {
     // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
     //     .spawn();
-    let cfg: MyConfig =
-        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
+    let cfg: config::MyConfig = confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
+    // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
     dbg!(&cfg);
     println!("{}", cfg.source.ip);
 
@@ -257,8 +110,7 @@ fn main() {
     let mut totalsize: u64 = 0;
     let bar = ProgressBar::new(file_names.len().try_into().unwrap());
     for base_name in file_names {
-
-            bar.inc(1);
+        bar.inc(1);
         let path_name = base_dir.to_owned() + base_name.as_ref();
         // println!("name: {}", path_name);
         let fsize = std::path::PathBuf::from(&path_name)
@@ -266,7 +118,7 @@ fn main() {
             .unwrap()
             .len();
         totalsize = totalsize + fsize;
-        println!("filesize: {} MB", fsize/1024/1024);
+        println!("filesize: {} MB", fsize / 1024 / 1024);
         let t = path_name;
         let x = helpers::get_extension_from_filename(&t);
         match x {
@@ -383,5 +235,5 @@ fn main() {
     let mut s = String::new();
     channel.read_to_string(&mut s).unwrap();
     println!("{}", &s);
-        bar.finish();
+    bar.finish();
 }
