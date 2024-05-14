@@ -12,6 +12,9 @@ app to sync image from android phone to server
 - 📁 automatic sorting into directory structure
 - 🔎 exif data based sorting
 - 📆 only backup new files
+- remove files older than X days
+- verify source and destination
+- 
 
 ## ⚡️ Requirements
 - sshfs
@@ -20,6 +23,9 @@ app to sync image from android phone to server
 ## ⚙️ Configuration
 
 ## 🚀 Usage
+```bash
+phone-media-backup-rs --version
+```
 
 ## 🪓 TODO
 
