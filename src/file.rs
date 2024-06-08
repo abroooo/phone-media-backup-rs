@@ -2,16 +2,13 @@ use crate::config;
 use crate::helpers;
 use indicatif::ProgressBar;
 use std::fs::File;
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
-
-use std::env;
-use std::io::BufReader;
-use std::time::SystemTime;
+use std::io::Read;
+use std::path::Path;
 
 use exif::{DateTime, In, Reader, Tag, Value};
+use std::io::BufReader;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 
 pub enum CompareMode {
     Lazy,

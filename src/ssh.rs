@@ -1,8 +1,8 @@
 use crate::config;
 use ssh2::Session;
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::Read;
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 pub struct Ssh {
@@ -12,7 +12,7 @@ impl Ssh {
     pub fn new(cfg: &config::MyConfig) -> Self {
         // create ssh session
         let remote_user = "dummy";
-        let private_key_path = Path::new(&cfg.source.cert);
+        // let private_key_path = Path::new(&cfg.source.cert);
 
         // mount sshfs
         let path = cfg.source.ip.to_string() + ":" + &cfg.source.path.to_string(); // Replace with your remote path

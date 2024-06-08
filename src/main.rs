@@ -1,16 +1,5 @@
 // use ssh2::Session;
-use std::fs::File;
-use std::io::{Cursor, Read, Seek, SeekFrom};
 extern crate exif;
-use indicatif::ProgressBar;
-
-use std::env;
-use std::io::BufReader;
-use std::time::SystemTime;
-
-use exif::{DateTime, In, Reader, Tag, Value};
-
-use chrono::{NaiveDate, NaiveDateTime};
 use std::process::Command;
 
 mod config;
@@ -68,7 +57,7 @@ fn main() {
     // set marker to latest date
     println!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
-    let marker = sess.execute_command(cmd);
+    sess.execute_command(cmd);
     println!("marker set!");
     // println!("Total size: {}", &totalsize);
     // println!("Total size: {}", totalsize / 1024 / 1024);
@@ -82,5 +71,5 @@ fn main() {
     // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
     // deletion
         + " -exec file {} \\;";
-    let res = sess.execute_command(cmd);
+    sess.execute_command(cmd);
 }
