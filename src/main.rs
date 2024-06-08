@@ -17,34 +17,7 @@ mod config;
 mod file;
 mod helpers;
 mod ssh;
-
-fn main() {
-    // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
-    //     .spawn();
-    let cfg: config::MyConfig =
-        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
-    // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
-    dbg!(&cfg);
-    println!("{}", cfg.source.ip);
-
-    // let sess = ssh::get_session(&cfg);
-    let sess = ssh::Ssh::new(&cfg);
-
-    // #################################################
-    // get start date and build command
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
-    let marker = sess.execute_command(cmd);
-
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
-    let list_of_files = sess.execute_command(cmd);
-
-    // #################################################
-    // get list of files to copy
-
-    let file_names: Vec<&str> = list_of_files.split('\n').collect();
-
-    // #################################################
-    // save files
+fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> NaiveDateTime {
     let base_dir = &cfg.general.mountpoint;
     let mut latest_date: NaiveDateTime = Default::default();
     let mut totalsize: u64 = 0;
@@ -127,6 +100,39 @@ fn main() {
         }
         println!("_________________________________________________________________________________________");
     }
+    bar.finish();
+    latest_date
+}
+
+fn main() {
+    // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
+    //     .spawn();
+    let cfg: config::MyConfig =
+        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
+    // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
+    // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
+    dbg!(&cfg);
+    println!("{}", cfg.source.ip);
+
+    // let sess = ssh::get_session(&cfg);
+    let sess = ssh::Ssh::new(&cfg);
+
+    // #################################################
+    // get start date and build command
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
+    let marker = sess.execute_command(cmd);
+
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
+    let list_of_files = sess.execute_command(cmd);
+
+    // #################################################
+    // get list of files to copy
+
+    let file_names: Vec<&str> = list_of_files.split('\n').collect();
+
+    // #################################################
+    // save files
+    let latest_date = save_files(&cfg, file_names);
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
     println!("Latest date {}", &new_marker);
     let output = Command::new("umount")
@@ -151,8 +157,8 @@ fn main() {
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
     let marker = sess.execute_command(cmd);
     println!("marker set!");
-    println!("Total size: {}", &totalsize);
-    println!("Total size: {}", totalsize / 1024 / 1024);
+    // println!("Total size: {}", &totalsize);
+    // println!("Total size: {}", totalsize / 1024 / 1024);
 
     // // delete files older than 60 days
     // find . -type f -mtime +60 -exec rm -f {} \;
@@ -164,5 +170,4 @@ fn main() {
     // deletion
         + " -exec file {} \\;";
     let res = sess.execute_command(cmd);
-    bar.finish();
 }
