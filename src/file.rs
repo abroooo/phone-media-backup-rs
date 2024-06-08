@@ -1,7 +1,17 @@
+use crate::config;
 use crate::helpers;
+use indicatif::ProgressBar;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+
+use std::env;
+use std::io::BufReader;
+use std::time::SystemTime;
+
+use exif::{DateTime, In, Reader, Tag, Value};
+
+use chrono::{NaiveDate, NaiveDateTime};
 
 pub enum CompareMode {
     Lazy,
@@ -81,4 +91,91 @@ pub fn move_file(dloc: crate::helpers::DateLoc) {
         let _ = helpers::set_file_times(&dest_file, metadata);
         println!("move {} to {}", dloc.source, dest_file);
     }
+}
+
+pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> NaiveDateTime {
+    let base_dir = &cfg.general.mountpoint;
+    let mut latest_date: NaiveDateTime = Default::default();
+    let mut totalsize: u64 = 0;
+    let bar = ProgressBar::new(file_names.len().try_into().unwrap());
+    for base_name in file_names {
+        bar.inc(1);
+        let path_name = base_dir.to_owned() + base_name.as_ref();
+        // println!("name: {}", path_name);
+        let fsize = std::path::PathBuf::from(&path_name)
+            .metadata()
+            .unwrap()
+            .len();
+        totalsize = totalsize + fsize;
+        println!("filesize: {} MB", fsize / 1024 / 1024);
+        let t = path_name;
+        let x = helpers::get_extension_from_filename(&t);
+        match x {
+            Some(x) => match x {
+                "jpg" | "dng" => {
+                    println!("{:?}", &t);
+                    let file = File::open(&t.to_string()).unwrap();
+                    let exif = Reader::new()
+                        .read_from_container(&mut BufReader::new(&file))
+                        .unwrap();
+                    if let Some(field) = exif.get_field(Tag::DateTime, In::PRIMARY) {
+                        match field.value {
+                            Value::Ascii(ref vec) if !vec.is_empty() => {
+                                if let Ok(datetime) = DateTime::from_ascii(&vec[0]) {
+                                    // println!("Year of DateTime is {}.", &datetime.year);
+                                    // println!("Month of DateTime is {:02}.", &datetime.month);
+                                    // println!("Day of DateTime is {}.", datetime.day);
+                                    // println!("{}", &datetime.to_string());
+                                    let datetime_native = NaiveDateTime::parse_from_str(
+                                        &datetime.to_string(),
+                                        "%Y-%m-%d %H:%M:%S",
+                                    )
+                                    .unwrap();
+                                    if datetime_native > latest_date {
+                                        latest_date = datetime_native;
+                                    }
+                                    move_file(helpers::DateLoc {
+                                        year: datetime.year.to_string(),
+                                        month: format!("{:02}", datetime.month),
+                                        source: t.to_string(),
+                                        base_name: base_name.to_string(),
+                                        destination_base: cfg.destination.path.to_owned(),
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "mp4" => {
+                    println!("{:?}", &t);
+                    let re = regex::Regex::new(r"\d{8}").unwrap();
+                    if let Some(date_match) = re.find(&t) {
+                        let year: String = date_match.as_str().chars().take(4).collect();
+                        let month: String = date_match.as_str().chars().skip(4).take(2).collect();
+                        println!("year: {}", &year.to_string());
+                        println!("month: {}", &month.to_string());
+                        move_file(helpers::DateLoc {
+                            year: year.to_string(),
+                            month: month.to_string(),
+                            source: t.to_string(),
+                            base_name: base_name.to_string(),
+                            destination_base: cfg.destination.path.to_owned(),
+                        });
+                    } else {
+                        println!("No date found in the string.");
+                    }
+                }
+                _ => {
+                    println!("dont care");
+                }
+            },
+            None => {
+                println!("dont care {}", t);
+            }
+        }
+        println!("_________________________________________________________________________________________");
+    }
+    bar.finish();
+    latest_date
 }
