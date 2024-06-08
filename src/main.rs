@@ -1,5 +1,6 @@
 // use ssh2::Session;
 extern crate exif;
+use std::env;
 use std::process::Command;
 
 mod config;
@@ -9,8 +10,11 @@ mod ssh;
 fn main() {
     // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
     //     .spawn();
+    // TODO: this is error prone. Use arg parser like clap
+    let args: Vec<String> = env::args().collect();
     let cfg: config::MyConfig =
-        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
+        confy::load_path("/home/user/dev/rust/phone-media-backup-rs/".to_owned() + &args[1])
+            .unwrap();
     // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/op7p").unwrap();
     // confy::load_path("/home/user/dev/rust/phone-media-backup-rs/config").unwrap();
     dbg!(&cfg);
