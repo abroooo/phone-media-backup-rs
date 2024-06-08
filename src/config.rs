@@ -1,4 +1,12 @@
+use clap::Parser;
 use serde_derive::{Deserialize, Serialize};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[arg(short, long, help = "Path to the configuration file.")]
+    pub config: String,
+}
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MyConfig {
