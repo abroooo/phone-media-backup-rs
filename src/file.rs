@@ -8,11 +8,7 @@ pub enum CompareMode {
     Strict,
 }
 
-pub fn compare_files(
-    source: &str,
-    destination: &str,
-    mode: CompareMode,
-) -> std::io::Result<bool> {
+pub fn compare_files(source: &str, destination: &str, mode: CompareMode) -> std::io::Result<bool> {
     match mode {
         CompareMode::Lazy => {
             println!("lazy check");
@@ -37,9 +33,7 @@ pub fn compare_files(
                 let bytes_read1 = file1.read(&mut buffer1)?;
                 let bytes_read2 = file2.read(&mut buffer2)?;
 
-                if bytes_read1 != bytes_read2
-                    || buffer1[..bytes_read1] != buffer2[..bytes_read2]
-                {
+                if bytes_read1 != bytes_read2 || buffer1[..bytes_read1] != buffer2[..bytes_read2] {
                     return Ok(false);
                 }
 
