@@ -7,7 +7,34 @@ mod file;
 mod helpers;
 mod ssh;
 
+use reqwest::blocking::Client;
+use reqwest::Error;
+use serde_json::json;
+
 fn main() {
+    // Replace with your actual token
+    let token = "";
+
+    // Define the URL
+    let url = " __CLIENT__";
+
+    // Create a client
+    let client = Client::new();
+
+    // Create the JSON payload
+    let payload = json!({
+        "state": "in progress"
+    });
+
+    // Send the POST request
+    let response = client
+        .post(url)
+        .bearer_auth(token) // Add the Authorization header
+        .header("Content-Type", "application/json") // Add the Content-Type header
+        .json(&payload) // Set the JSON payload
+        .send()
+        .unwrap(); // Send the request and handle the response
+
     // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
     //     .spawn();
     let args = config::Args::parse();
@@ -65,8 +92,21 @@ fn main() {
     // println!("Total size: {}", &totalsize);
     // println!("Total size: {}", totalsize / 1024 / 1024);
 
-    // // delete files older than 60 days
-    // find . -type f -mtime +60 -exec rm -f {} \;
+    // Create the JSON payload
+    let payload = json!({
+        "state": "success"
+    });
+
+    // Send the POST request
+    let response = client
+        .post(url)
+        .bearer_auth(token) // Add the Authorization header
+        .header("Content-Type", "application/json") // Add the Content-Type header
+        .json(&payload) // Set the JSON payload
+        .send()
+        .unwrap(); // Send the request and handle the response
+                   // // delete files older than 60 days
+                   // find . -type f -mtime +60 -exec rm -f {} \;
     let cmd = "cd ".to_owned()
         + &cfg.source.path
         + " && find . -type f -mtime +"
