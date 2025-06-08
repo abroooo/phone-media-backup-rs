@@ -91,6 +91,7 @@ pub fn move_file(dloc: crate::helpers::DateLoc) {
 }
 
 pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> NaiveDateTime {
+    let mut skipped_files: Vec<String> = Vec::new();
     let base_dir = &cfg.general.mountpoint;
     let mut latest_date: NaiveDateTime = Default::default();
     let mut totalsize: u64 = 0;
@@ -112,9 +113,14 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> NaiveDateTim
                 "jpg" | "dng" => {
                     println!("{:?}", &t);
                     let file = File::open(&t.to_string()).unwrap();
-                    let exif = Reader::new()
-                        .read_from_container(&mut BufReader::new(&file))
-                        .unwrap();
+                    let exif = match Reader::new().read_from_container(&mut BufReader::new(&file)) {
+                        Ok(exif_data) => exif_data,
+                        Err(e) => {
+                            eprintln!("Failed to read EXIF data for {}: {} - skip", &t, e);
+                            skipped_files.push(t.to_string());
+                            continue;
+                        }
+                    };
                     if let Some(field) = exif.get_field(Tag::DateTime, In::PRIMARY) {
                         match field.value {
                             Value::Ascii(ref vec) if !vec.is_empty() => {
@@ -174,5 +180,8 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> NaiveDateTim
         println!("_________________________________________________________________________________________");
     }
     bar.finish();
+    skipped_files.iter().for_each(|x| {
+        println!("skipped file: {}", x);
+    });
     latest_date
 }
