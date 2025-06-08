@@ -11,38 +11,54 @@ use reqwest::blocking::Client;
 use reqwest::Error;
 use serde_json::json;
 
-fn main() {
-    // Replace with your actual token
-    let token = "";
+struct BackupNotifier {
+    client: Client,
+    url: String,
+    token: String,
+}
 
-    // Define the URL
-    let url = " __CLIENT__";
+impl BackupNotifier {
+    fn new(url: &str, token: &str) -> Self {
+        BackupNotifier {
+            client: Client::new(),
+            url: url.to_string(),
+            token: token.to_string(),
+        }
+    }
 
-    // Create a client
-    let client = Client::new();
+    fn notify(&self, state: &str) -> Result<(), Error> {
+        let payload = json!({ "state": state });
 
-    // Create the JSON payload
-    let payload = json!({
-        "state": "in progress"
-    });
+        self.client
+            .post(&self.url)
+            .bearer_auth(&self.token)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()?
+            .error_for_status()?;
+        Ok(())
+    }
+}
 
-    // Send the POST request
-    let response = client
-        .post(url)
-        .bearer_auth(token) // Add the Authorization header
-        .header("Content-Type", "application/json") // Add the Content-Type header
-        .json(&payload) // Set the JSON payload
-        .send()
-        .unwrap(); // Send the request and handle the response
+fn main() -> Result<(), Error> {
+    let notifier = BackupNotifier::new(
+        "__CLIENT__",
+        "__TOKEN__",
+    );
+
+    notifier.notify("in progress")?;
 
     // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
     //     .spawn();
     let args = config::Args::parse();
 
-    let cfg: config::MyConfig = confy::load_path(
-        "/home/user/dev/rust/phone-media-backup-rs/config/".to_owned() + &args.config,
-    )
-    .unwrap();
+    let config_path = format!(
+        "/home/user/dev/rust/phone-media-backup-rs/config/{}",
+        args.config
+    );
+    let cfg: config::MyConfig =
+        confy::load_path(&config_path).expect("Failed to load configuration");
+
     dbg!(&cfg);
     println!("{}", cfg.source.ip);
 
@@ -92,21 +108,8 @@ fn main() {
     // println!("Total size: {}", &totalsize);
     // println!("Total size: {}", totalsize / 1024 / 1024);
 
-    // Create the JSON payload
-    let payload = json!({
-        "state": "success"
-    });
+    notifier.notify("success")?;
 
-    // Send the POST request
-    let response = client
-        .post(url)
-        .bearer_auth(token) // Add the Authorization header
-        .header("Content-Type", "application/json") // Add the Content-Type header
-        .json(&payload) // Set the JSON payload
-        .send()
-        .unwrap(); // Send the request and handle the response
-                   // // delete files older than 60 days
-                   // find . -type f -mtime +60 -exec rm -f {} \;
     let cmd = "cd ".to_owned()
         + &cfg.source.path
         + " && find . -type f -mtime +"
@@ -115,4 +118,5 @@ fn main() {
     // deletion
         + " -exec file {} \\;";
     sess.execute_command(cmd);
+    Ok(())
 }
