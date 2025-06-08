@@ -14,15 +14,17 @@ app to sync image from android phone to server
 - 📆 only backup new files
 - remove files older than X days
 - verify source and destination
-- 
+-
 
 ## ⚡️ Requirements
+
 - sshfs
-- ssh access to phone (https://www.galexander.org/software/simplesshd) 
+- ssh access to phone (https://www.galexander.org/software/simplesshd)
 
 ## ⚙️ Configuration
 
 ## 🚀 Usage
+
 ```bash
 phone-media-backup-rs --version
 ```
@@ -35,6 +37,7 @@ phone-media-backup-rs --version
 - [x] backup files
 - [x] set marker
 - [x] add config
+- [ ] select specific directory to backup
 - [ ] add cli interface
 - [ ] add info option (stats about the source, last backup ...)
 - [ ] add verify option (check that all files in source are present at destination)
