@@ -2,34 +2,59 @@ use crate::config;
 use crate::helpers;
 use indicatif::ProgressBar;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use xxhash_rust::xxh3::xxh3_64;
 
 use exif::{DateTime, In, Reader, Tag, Value};
 use std::io::BufReader;
 
 use chrono::NaiveDateTime;
 
+const PARTIAL_HASH_SIZE: u64 = 64 * 1024;
+
 pub enum CompareMode {
-    Lazy,
+    Checksum,
     Strict,
 }
 
+fn partial_checksum(path: &str) -> std::io::Result<u64> {
+    let mut file = File::open(path)?;
+    let file_size = file.metadata()?.len();
+
+    let first_chunk_size = std::cmp::min(file_size, PARTIAL_HASH_SIZE) as usize;
+    let mut buffer = vec![0u8; first_chunk_size];
+    file.read_exact(&mut buffer)?;
+
+    if file_size > PARTIAL_HASH_SIZE {
+        let last_offset = file_size - PARTIAL_HASH_SIZE;
+        if last_offset > PARTIAL_HASH_SIZE {
+            file.seek(SeekFrom::Start(last_offset))?;
+            let mut tail = vec![0u8; PARTIAL_HASH_SIZE as usize];
+            file.read_exact(&mut tail)?;
+            buffer.extend_from_slice(&tail);
+        }
+    }
+
+    Ok(xxh3_64(&buffer))
+}
+
 pub fn compare_files(source: &str, destination: &str, mode: CompareMode) -> std::io::Result<bool> {
+    if !Path::new(destination).exists() {
+        return Ok(false);
+    }
+
     match mode {
-        CompareMode::Lazy => {
-            println!("lazy check");
-            if Path::new(&destination).exists() {
-                println!("files are identical");
+        CompareMode::Checksum => {
+            let src_hash = partial_checksum(source)?;
+            let dst_hash = partial_checksum(destination)?;
+            if src_hash == dst_hash {
+                println!("files are identical (checksum match)");
                 return Ok(true);
             }
             Ok(false)
         }
         CompareMode::Strict => {
-            println!("strict check");
-            if Path::new(&destination).exists() {
-                return Ok(false);
-            }
             let mut file1 = File::open(source)?;
             let mut file2 = File::open(destination)?;
 
@@ -48,8 +73,7 @@ pub fn compare_files(source: &str, destination: &str, mode: CompareMode) -> std:
                     break;
                 }
             }
-            println!("files are identical");
-
+            println!("files are identical (strict match)");
             Ok(true)
         }
     }
@@ -72,8 +96,8 @@ pub fn move_file(dloc: crate::helpers::DateLoc) {
     let _ = std::fs::create_dir_all(&dest_dir);
 
     // println!("{}", filename);
-    if compare_files(&dloc.source, &dest_file, CompareMode::Lazy).unwrap() {
-        println!("exists!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
+    if compare_files(&dloc.source, &dest_file, CompareMode::Checksum).unwrap() {
+        println!("file already exists, skipping: {}", dest_file);
     } else {
         let _ = std::fs::copy(&dloc.source, &dest_file);
         let _ = compare_files(&dloc.source, &dest_file, CompareMode::Strict);
