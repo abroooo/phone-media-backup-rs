@@ -2,6 +2,7 @@ use crate::config;
 use crate::helpers;
 use anyhow::Context;
 use indicatif::ProgressBar;
+use std::fs::metadata;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -47,28 +48,39 @@ pub fn compare_partial(source: &PathBuf, destination: &PathBuf) -> std::io::Resu
     }
     Ok(false)
 }
+
 pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Result<bool> {
     if !Path::new(destination).exists() {
         return Ok(false);
     }
+
+    let m1 = metadata(source)?;
+    let m2 = metadata(destination)?;
+    if m1.len() != m2.len() {
+        return Ok(false);
+    }
+
     let mut file1 = File::open(source)?;
     let mut file2 = File::open(destination)?;
 
     let mut buffer1 = [0; 4096];
     let mut buffer2 = [0; 4096];
 
-    loop {
-        let bytes_read1 = file1.read(&mut buffer1)?;
-        let bytes_read2 = file2.read(&mut buffer2)?;
+    let file_size = m1.len() as usize;
+    let mut remaining = file_size;
 
-        if bytes_read1 != bytes_read2 || buffer1[..bytes_read1] != buffer2[..bytes_read2] {
+    while remaining > 0 {
+        let chunk_size = std::cmp::min(4096, remaining);
+        file1.read_exact(&mut buffer1[..chunk_size])?;
+        file2.read_exact(&mut buffer2[..chunk_size])?;
+
+        if buffer1[..chunk_size] != buffer2[..chunk_size] {
             return Ok(false);
         }
 
-        if bytes_read1 == 0 {
-            break;
-        }
+        remaining -= chunk_size;
     }
+
     println!("files are identical (strict match)");
     Ok(true)
 }
