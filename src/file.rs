@@ -131,11 +131,11 @@ pub fn resolve_destination(
             None
         }
         "mp4" => {
-            let re = regex::Regex::new(r"\d{8}").unwrap();
-            if let Some(date_match) = re.find(path_name.to_str()?) {
-                let year: String = date_match.as_str().chars().take(4).collect();
-                let month: String = date_match.as_str().chars().skip(4).take(2).collect();
-                let day: String = date_match.as_str().chars().skip(6).take(2).collect();
+            let re = regex::Regex::new(r"PXL_(\d{4})(\d{2})(\d{2})_").unwrap();
+            if let Some(date_match) = re.captures(path_name.to_str()?) {
+                let year: String = date_match[1].to_string();
+                let month: String = date_match[2].to_string();
+                let day: String = date_match[3].to_string();
                 let naive = NaiveDateTime::parse_from_str(
                     &format!("{}-{}-{} 00:00:00", year, month, day),
                     "%Y-%m-%d %H:%M:%S",
@@ -426,7 +426,7 @@ mod tests {
     fn test_save_files_mp4_date_from_filename() {
         let mount_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
-        let _src = create_file_at(mount_dir.path(), "VID_20240315_something.mp4", b"fake mp4");
+        let _src = create_file_at(mount_dir.path(), "PXL_20240315_something.mp4", b"fake mp4");
 
         let cfg = config::MyConfig {
             general: config::General {
@@ -438,8 +438,8 @@ mod tests {
             },
         };
 
-        save_files(&cfg, vec!["VID_20240315_something.mp4"]);
-        let expected = dst_dir.path().join("2024/03/VID_20240315_something.mp4");
+        save_files(&cfg, vec!["PXL_20240315_something.mp4"]);
+        let expected = dst_dir.path().join("2024/03/PXL_20240315_something.mp4");
         assert!(expected.exists(), "MP4 should be saved at {:?}", expected);
     }
 
@@ -473,8 +473,8 @@ mod tests {
         // Create two MP4 files with different dates in their names
         let mount_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
-        let _f1 = create_file_at(mount_dir.path(), "VID_20230101_a.mp4", b"mp4 data");
-        let _f2 = create_file_at(mount_dir.path(), "VID_20240601_b.mp4", b"mp4 data");
+        let _f1 = create_file_at(mount_dir.path(), "PXL_20230101_a.mp4", b"mp4 data");
+        let _f2 = create_file_at(mount_dir.path(), "PXL_20240601_b.mp4", b"mp4 data");
 
         let cfg = config::MyConfig {
             general: config::General {
@@ -486,7 +486,7 @@ mod tests {
             },
         };
 
-        let result = save_files(&cfg, vec!["VID_20230101_a.mp4", "VID_20240601_b.mp4"]).unwrap();
+        let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"]).unwrap();
         // save_files only updates latest_date for jpg/dng (via exif), not mp4
         // so for mp4-only input the result stays at the default
         assert_eq!(result, NaiveDateTime::default());
@@ -580,9 +580,9 @@ mod tests {
         let dst_dir = TempDir::new().unwrap();
 
         // Create source mp4
-        let _src = create_file_at(mount_dir.path(), "VID_20240315_a.mp4", b"mp4 data");
+        let _src = create_file_at(mount_dir.path(), "PXL_20240315_a.mp4", b"mp4 data");
         // Pre-create identical backup
-        create_file_at(dst_dir.path(), "2024/03/VID_20240315_a.mp4", b"mp4 data");
+        create_file_at(dst_dir.path(), "2024/03/PXL_20240315_a.mp4", b"mp4 data");
 
         let cfg = config::MyConfig {
             general: config::General {
@@ -594,7 +594,7 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["VID_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
         assert!(missing.is_empty());
     }
 
@@ -603,7 +603,7 @@ mod tests {
         let mount_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
 
-        let _src = create_file_at(mount_dir.path(), "VID_20240315_a.mp4", b"mp4 data");
+        let _src = create_file_at(mount_dir.path(), "PXL_20240315_a.mp4", b"mp4 data");
         // No backup exists
 
         let cfg = config::MyConfig {
@@ -616,8 +616,8 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["VID_20240315_a.mp4"]);
-        assert_eq!(missing, vec!["VID_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
+        assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
     }
 
     #[test]
@@ -625,10 +625,10 @@ mod tests {
         let mount_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
 
-        let _src = create_file_at(mount_dir.path(), "VID_20240315_a.mp4", b"original data");
+        let _src = create_file_at(mount_dir.path(), "PXL_20240315_a.mp4", b"original data");
         create_file_at(
             dst_dir.path(),
-            "2024/03/VID_20240315_a.mp4",
+            "2024/03/PXL_20240315_a.mp4",
             b"corrupted data",
         );
 
@@ -642,8 +642,8 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["VID_20240315_a.mp4"]);
-        assert_eq!(missing, vec!["VID_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
+        assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
     }
 
     #[test]
