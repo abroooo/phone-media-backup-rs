@@ -135,10 +135,16 @@ pub fn resolve_destination(
             if let Some(date_match) = re.find(path_name.to_str()?) {
                 let year: String = date_match.as_str().chars().take(4).collect();
                 let month: String = date_match.as_str().chars().skip(4).take(2).collect();
+                let day: String = date_match.as_str().chars().skip(6).take(2).collect();
+                let naive = NaiveDateTime::parse_from_str(
+                    &format!("{}-{}-{} 00:00:00", year, month, day),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+                .ok()?;
                 let dest = format!("{}/{}/{}/{}", dest_base.display(), year, month, base_name);
                 Some(ResolvedFile {
                     dest_path: dest.into(),
-                    datetime: None,
+                    datetime: Some(naive),
                 })
             } else {
                 None
@@ -541,15 +547,22 @@ mod tests {
     #[test]
     fn test_resolve_destination_mp4() {
         let dir = TempDir::new().unwrap();
-        let src = create_file_at(dir.path(), "VID_20240315_test.mp4", b"fake mp4");
+        let src = create_file_at(dir.path(), "PXL_20260410_101720861.mp4", b"fake mp4");
 
-        let result =
-            resolve_destination(&PathBuf::from("/backup"), "VID_20240315_test.mp4", &src).unwrap();
+        let result = resolve_destination(
+            &PathBuf::from("/backup"),
+            "PXL_20260410_101720861.mp4",
+            &src,
+        )
+        .unwrap();
         assert_eq!(
             result.dest_path,
-            PathBuf::from("/backup/2024/03/VID_20240315_test.mp4")
+            PathBuf::from("/backup/2026/04/PXL_20260410_101720861.mp4")
         );
-        assert!(result.datetime.is_none());
+        assert_eq!(
+            result.datetime.unwrap(),
+            NaiveDateTime::parse_from_str("2026-04-10 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
     }
 
     #[test]
