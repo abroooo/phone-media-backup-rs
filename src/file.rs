@@ -66,14 +66,14 @@ pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Resul
     let mut file1 = File::open(source)?;
     let mut file2 = File::open(destination)?;
 
-    let mut buffer1 = [0; 4096];
-    let mut buffer2 = [0; 4096];
+    let mut buffer1 = [0; 65536];
+    let mut buffer2 = [0; 65536];
 
     let file_size = m1.len() as usize;
     let mut remaining = file_size;
 
     while remaining > 0 {
-        let chunk_size = std::cmp::min(4096, remaining);
+        let chunk_size = std::cmp::min(65536, remaining);
         file1.read_exact(&mut buffer1[..chunk_size])?;
         file2.read_exact(&mut buffer2[..chunk_size])?;
 
