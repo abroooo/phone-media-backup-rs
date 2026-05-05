@@ -251,7 +251,10 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     skipped_files.iter().for_each(|x| {
         println!("skipped file: {:?}", x);
     });
-    Ok(latest_date)
+    let marker_date = latest_date - Duration::seconds(60 * 60 * 24); // set marker to 1 day before latest date to
+                                                                     // not miss files that are created after
+                                                                     // backup but on the same day
+    Ok(marker_date)
 }
 
 #[cfg(test)]
