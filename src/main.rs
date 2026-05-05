@@ -51,10 +51,10 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // #################################################
     // get start date and build command
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
-    let marker = sess.execute_command(cmd)?;
+    let marker = sess.execute_command(&cmd)?;
 
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
-    let list_of_files = sess.execute_command(cmd);
+    let list_of_files = sess.execute_command(&cmd);
 
     // #################################################
     // get list of files to copy
@@ -71,7 +71,7 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // set marker to latest date
     println!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
-    sess.execute_command(cmd)?;
+    sess.execute_command(&cmd)?;
     println!("marker set!");
 
     notifier.notify("success")?;
@@ -83,14 +83,14 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
     // deletion
         + " -exec file {} \\;";
-    sess.execute_command(cmd)?;
+    sess.execute_command(&cmd)?;
     Ok(())
 }
 
 fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
     // List ALL files on the phone (not just newer than marker)
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
-    let list_of_files = sess.execute_command(cmd);
+    let list_of_files = sess.execute_command(&cmd);
 
     let binding = list_of_files?;
     let file_names: Vec<&str> = binding.split('\n').filter(|s| !s.is_empty()).collect();
@@ -103,7 +103,7 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     } else {
         println!("\n{} files NOT backed up:", missing.len());
         for f in &missing {
-            println!("  {}", f);
+            println!("  {f}");
         }
     }
     Ok(())

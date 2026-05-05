@@ -19,18 +19,15 @@ fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
     let file_size = file.metadata()?.len();
 
-    let first_chunk_size = std::cmp::min(file_size, PARTIAL_HASH_SIZE) as usize;
+    let first_chunk_size =
+        usize::try_from(std::cmp::min(file_size, PARTIAL_HASH_SIZE)).unwrap_or(0);
     let mut buffer = vec![0u8; first_chunk_size];
     file.read_exact(&mut buffer)?;
 
     if file_size > 0 {
-        let last_offset = if file_size > PARTIAL_HASH_SIZE {
-            file_size - PARTIAL_HASH_SIZE
-        } else {
-            0
-        };
+        let last_offset = file_size.saturating_sub(PARTIAL_HASH_SIZE);
         file.seek(SeekFrom::Start(last_offset))?;
-        let tail_len = (file_size - last_offset) as usize;
+        let tail_len = usize::try_from(file_size - last_offset).unwrap_or(0);
         let mut tail = vec![0u8; tail_len];
         file.read_exact(&mut tail)?;
         buffer.extend_from_slice(&tail);
@@ -66,10 +63,12 @@ pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Resul
     let mut file1 = File::open(source)?;
     let mut file2 = File::open(destination)?;
 
-    let mut buffer1 = [0; 65536];
-    let mut buffer2 = [0; 65536];
+    // let mut buffer1 = [0; 65536];
+    let mut buffer1 = vec![0; 65536].into_boxed_slice();
+    let mut buffer2 = vec![0; 65536].into_boxed_slice();
+    // let mut buffer2 = [0; 65536];
 
-    let file_size = m1.len() as usize;
+    let file_size = usize::try_from(m1.len()).unwrap_or(0);
     let mut remaining = file_size;
 
     while remaining > 0 {
@@ -93,15 +92,20 @@ pub struct ResolvedFile {
     pub datetime: Option<NaiveDateTime>,
 }
 
-/// Given a source file path and its base_name, resolve where it would be backed up to.
+/// Given a source file path and its `base_name`, resolve where it would be backed up to.
 /// Returns `None` for unsupported extensions or files without date info.
 pub fn resolve_destination(
-    dest_base: &PathBuf,
+    dest_base: &Path,
     base_name: &str,
     path_name: &PathBuf,
 ) -> Option<ResolvedFile> {
     let ext = helpers::get_extension_from_filename(path_name)?;
     match ext {
+        // TODO: add support for more formats (e.g. mov, heic). Consider using a trait like
+        // trait MediaKind {
+        // fn matches(ext: &str) -> bool;
+        // fn resolve(path: &Path, base: &str, dest: &str) -> Option<ResolvedFile>;
+        // }
         "jpg" | "dng" => {
             let file = File::open(path_name).ok()?;
             let exif = Reader::new()
@@ -137,7 +141,7 @@ pub fn resolve_destination(
                 let month: String = date_match[2].to_string();
                 let day: String = date_match[3].to_string();
                 let naive = NaiveDateTime::parse_from_str(
-                    &format!("{}-{}-{} 00:00:00", year, month, day),
+                    &format!("{year}-{month}-{day} 00:00:00"),
                     "%Y-%m-%d %H:%M:%S",
                 )
                 .ok()?;
@@ -169,7 +173,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
         let path_name = match PathBuf::from(&base_dir).join(base_name).canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                println!("ERROR accessing {:?}: {}", base_name, e);
+                println!("ERROR accessing {base_name}: {e}");
                 missing.push(base_name.to_string());
                 continue;
             }
@@ -177,13 +181,13 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
         let canonical_root = match PathBuf::from(base_dir).canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("canonicalize failed: {:?} {}", base_dir, e);
+                eprintln!("canonicalize failed: {base_dir} {e}");
                 missing.push(base_name.to_string());
                 continue;
             }
         };
         if !path_name.starts_with(&canonical_root) {
-            eprintln!("path escape attempt: {:?}", path_name);
+            eprintln!("path escape attempt: {}", path_name.display());
             missing.push(path_name.to_string_lossy().to_string());
             continue;
         }
@@ -197,13 +201,14 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
                     }
                     Ok(false) => {
                         println!(
-                            "MISSING/DIFFERENT: {:?} -> {:?}",
-                            &path_name, resolved.dest_path
+                            "MISSING/DIFFERENT: {} -> {}",
+                            &path_name.display(),
+                            resolved.dest_path.display()
                         );
                         missing.push(base_name.to_string());
                     }
                     Err(e) => {
-                        println!("ERROR checking {:?}: {}", path_name, e);
+                        println!("ERROR checking {}: {}", path_name.display(), e);
                         missing.push(base_name.to_string());
                     }
                 }
@@ -228,7 +233,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
 pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
     let mut skipped_files: Vec<PathBuf> = Vec::new();
     let base_dir = &cfg.general.mountpoint;
-    let mut latest_date: NaiveDateTime = Default::default();
+    let mut latest_date: NaiveDateTime = NaiveDateTime::default();
     let mut totalsize: u64 = 0;
     let bar = ProgressBar::new(file_names.len().try_into()?);
     for base_name in file_names {
@@ -236,7 +241,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
         let path_name = PathBuf::from(base_dir).join(base_name).canonicalize()?;
         let canonical_root = PathBuf::from(base_dir).canonicalize()?;
         if !path_name.starts_with(&canonical_root) {
-            eprintln!("path escape attempt: {:?}", path_name);
+            eprintln!("path escape attempt: {}", path_name.display());
             skipped_files.push(path_name);
             continue;
         }
@@ -248,47 +253,52 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
             totalsize / 1024 / 1024
         );
 
-        match resolve_destination(&cfg.destination.path, base_name, &path_name) {
-            Some(resolved) => {
-                println!("{:?}", &path_name);
-                if let Some(dt) = resolved.datetime {
-                    if dt > latest_date {
-                        latest_date = dt;
-                    }
+        if let Some(resolved) = resolve_destination(&cfg.destination.path, base_name, &path_name) {
+            println!("{}", &path_name.display());
+            if let Some(dt) = resolved.datetime {
+                if dt > latest_date {
+                    latest_date = dt;
                 }
-                let dest_dir = &resolved.dest_path.to_string_lossy()
-                // TODO: consider using resolved.dest_path.parent() instead of string manipulation
-                // to get the directory
-                    [..resolved.dest_path.to_string_lossy().rfind('/').unwrap_or(0)];
-                let _ = std::fs::create_dir_all(dest_dir);
+            }
+            let dest_dir = &resolved.dest_path.to_string_lossy()
+            // TODO: consider using resolved.dest_path.parent() instead of string manipulation
+            // to get the directory
+                [..resolved.dest_path.to_string_lossy().rfind('/').unwrap_or(0)];
+            let _ = std::fs::create_dir_all(dest_dir);
 
-                if compare_partial(&path_name, &resolved.dest_path)? {
-                    println!("file already exists, skipping: {:?}", resolved.dest_path);
-                } else {
-                    std::fs::copy(&path_name, &resolved.dest_path)
-                        .with_context(|| format!("copy {}", &path_name.to_string_lossy()))?;
-                    if !compare_strict(&path_name, &resolved.dest_path)? {
-                        eprintln!(
-                            "ERROR: copied file does not match source: {:?}",
-                            resolved.dest_path
-                        );
-                    }
-                    let metadata = std::fs::metadata(&path_name)?;
-                    let _ = helpers::set_file_times(&resolved.dest_path, metadata);
-                    println!("move {:?} to {:?}", path_name, resolved.dest_path);
+            if compare_partial(&path_name, &resolved.dest_path)? {
+                println!(
+                    "file already exists, skipping: {}",
+                    resolved.dest_path.display()
+                );
+            } else {
+                std::fs::copy(&path_name, &resolved.dest_path)
+                    .with_context(|| format!("copy {}", &path_name.to_string_lossy()))?;
+                if !compare_strict(&path_name, &resolved.dest_path)? {
+                    eprintln!(
+                        "ERROR: copied file does not match source: {}",
+                        resolved.dest_path.display()
+                    );
                 }
+                let metadata = std::fs::metadata(&path_name)?;
+                let _ = helpers::set_file_times(&resolved.dest_path, &metadata);
+                println!(
+                    "move {} to {}",
+                    path_name.display(),
+                    resolved.dest_path.display()
+                );
             }
-            None => {
-                eprintln!("skipping (unsupported or no date): {:?}", path_name);
-                skipped_files.push(path_name);
-            }
+        } else {
+            eprintln!("skipping (unsupported or no date): {}", path_name.display());
+            skipped_files.push(path_name);
         }
+
         println!("_________________________________________________________________________________________");
     }
     bar.finish();
-    skipped_files.iter().for_each(|x| {
-        println!("skipped file: {:?}", x);
-    });
+    for x in &skipped_files {
+        println!("skipped file: {}", x.display());
+    }
     let marker_date = latest_date - Duration::seconds(60 * 60 * 24); // set marker to 1 day before latest date to
                                                                      // not miss files that are created after
                                                                      // backup but on the same day
@@ -298,6 +308,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Source;
     use std::io::Write;
     use tempfile::TempDir;
 
@@ -344,7 +355,7 @@ mod tests {
         let mut data = vec![0xABu8; 200 * 1024];
         // Make it non-uniform so the tail chunk matters
         for (i, byte) in data.iter_mut().enumerate() {
-            *byte = (i % 251) as u8;
+            *byte = u8::try_from(i % 251).unwrap_or(0);
         }
         let src = create_file(&dir, "big_a.bin", &data);
         let dst = create_file(&dir, "big_b.bin", &data);
@@ -356,7 +367,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut data = vec![0u8; 200 * 1024];
         for (i, byte) in data.iter_mut().enumerate() {
-            *byte = (i % 251) as u8;
+            *byte = u8::try_from(i % 251).unwrap_or(0);
         }
         let src = create_file(&dir, "big_a.bin", &data);
 
@@ -407,7 +418,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
@@ -415,7 +426,7 @@ mod tests {
 
         let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap();
         let expected = dst_dir.path().join("2023/07/test_photo.jpg");
-        assert!(expected.exists(), "JPEG should be saved at {:?}", expected);
+        assert!(expected.exists(), "JPEG should be saved at {expected:?}");
         assert_eq!(
             result,
             NaiveDateTime::parse_from_str("2023-07-15 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
@@ -432,15 +443,15 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
         };
 
-        save_files(&cfg, vec!["PXL_20240315_something.mp4"]);
+        let _ = save_files(&cfg, vec!["PXL_20240315_something.mp4"]);
         let expected = dst_dir.path().join("2024/03/PXL_20240315_something.mp4");
-        assert!(expected.exists(), "MP4 should be saved at {:?}", expected);
+        assert!(expected.exists(), "MP4 should be saved at {expected:?}");
     }
 
     #[test]
@@ -453,13 +464,13 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
         };
 
-        save_files(&cfg, vec!["notes.txt"]);
+        let _ = save_files(&cfg, vec!["notes.txt"]);
         // Nothing should be created in dst_dir (only the dir itself)
         let entries: Vec<_> = std::fs::read_dir(dst_dir.path()).unwrap().collect();
         assert!(
@@ -480,7 +491,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
@@ -518,7 +529,7 @@ mod tests {
         app1_body.extend_from_slice(&0u32.to_le_bytes());
         app1_body.extend_from_slice(exif_datetime);
 
-        let app1_len = (app1_body.len() + 2) as u16;
+        let app1_len = u16::try_from(app1_body.len() + 2).unwrap_or(0);
         let mut jpeg = Vec::new();
         jpeg.extend_from_slice(&[0xFF, 0xD8]);
         jpeg.extend_from_slice(&[0xFF, 0xE1]);
@@ -588,7 +599,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
@@ -610,7 +621,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
@@ -636,7 +647,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
@@ -657,7 +668,7 @@ mod tests {
             general: config::General {
                 mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
             },
-            source: Default::default(),
+            source: Source::default(),
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },

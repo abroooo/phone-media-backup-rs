@@ -14,7 +14,7 @@ impl Mount {
         let out = Command::new("sshfs")
             .arg("-p")
             .arg(cfg.source.port.to_string())
-            .arg(cfg.source.ip.to_string() + ":" + &cfg.source.path.to_string())
+            .arg(cfg.source.ip.clone() + ":" + &cfg.source.path.clone())
             .arg(&cfg.general.mountpoint)
             .output()?;
         if !out.status.success() {
@@ -38,7 +38,7 @@ impl Drop for Mount {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute unmount: {}", e);
+                eprintln!("Failed to execute unmount: {e}");
             }
         }
     }
@@ -83,15 +83,15 @@ impl Ssh {
         Ok(Ssh { sess })
     }
 
-    pub fn execute_command(&self, cmd: String) -> anyhow::Result<String> {
+    pub fn execute_command(&self, cmd: &str) -> anyhow::Result<String> {
         let mut channel = self
             .sess
             .channel_session()
             .context("Failed to open SSH channel")?;
         channel
-            .exec(&cmd)
+            .exec(cmd)
             // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
-            .context(format!("Failed to execute command: {}", cmd))?;
+            .context(format!("Failed to execute command: {cmd}"))?;
         let mut s = String::new();
         channel.read_to_string(&mut s).unwrap();
         println!("{}", &s);
