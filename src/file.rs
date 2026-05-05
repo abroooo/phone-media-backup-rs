@@ -10,14 +10,9 @@ use xxhash_rust::xxh3::xxh3_64;
 use exif::{DateTime, In, Reader, Tag, Value};
 use std::io::BufReader;
 
-use chrono::NaiveDateTime;
+use chrono::{Duration, NaiveDateTime};
 
 const PARTIAL_HASH_SIZE: u64 = 64 * 1024;
-
-pub enum CompareMode {
-    Checksum,
-    Strict,
-}
 
 fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
@@ -40,49 +35,44 @@ fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     Ok(xxh3_64(&buffer))
 }
 
-pub fn compare_files(
-    source: &PathBuf,
-    destination: &PathBuf,
-    mode: CompareMode,
-) -> std::io::Result<bool> {
+pub fn compare_partial(source: &PathBuf, destination: &PathBuf) -> std::io::Result<bool> {
     if !Path::new(destination).exists() {
         return Ok(false);
     }
+    let src_hash = partial_checksum(source)?;
+    let dst_hash = partial_checksum(destination)?;
+    if src_hash == dst_hash {
+        println!("files are identical (checksum match)");
+        return Ok(true);
+    }
+    Ok(false)
+}
+pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Result<bool> {
+    if !Path::new(destination).exists() {
+        return Ok(false);
+    }
+    let mut file1 = File::open(source)?;
+    let mut file2 = File::open(destination)?;
 
-    match mode {
-        CompareMode::Checksum => {
-            let src_hash = partial_checksum(source)?;
-            let dst_hash = partial_checksum(destination)?;
-            if src_hash == dst_hash {
-                println!("files are identical (checksum match)");
-                return Ok(true);
-            }
-            Ok(false)
+    let mut buffer1 = [0; 4096];
+    let mut buffer2 = [0; 4096];
+
+    loop {
+        let bytes_read1 = file1.read(&mut buffer1)?;
+        let bytes_read2 = file2.read(&mut buffer2)?;
+
+        if bytes_read1 != bytes_read2 || buffer1[..bytes_read1] != buffer2[..bytes_read2] {
+            return Ok(false);
         }
-        CompareMode::Strict => {
-            let mut file1 = File::open(source)?;
-            let mut file2 = File::open(destination)?;
 
-            let mut buffer1 = [0; 4096];
-            let mut buffer2 = [0; 4096];
-
-            loop {
-                let bytes_read1 = file1.read(&mut buffer1)?;
-                let bytes_read2 = file2.read(&mut buffer2)?;
-
-                if bytes_read1 != bytes_read2 || buffer1[..bytes_read1] != buffer2[..bytes_read2] {
-                    return Ok(false);
-                }
-
-                if bytes_read1 == 0 {
-                    break;
-                }
-            }
-            println!("files are identical (strict match)");
-            Ok(true)
+        if bytes_read1 == 0 {
+            break;
         }
     }
+    println!("files are identical (strict match)");
+    Ok(true)
 }
+
 pub struct ResolvedFile {
     pub dest_path: PathBuf,
     pub datetime: Option<NaiveDateTime>,
@@ -104,23 +94,24 @@ pub fn resolve_destination(
                 .ok()?;
             let field = exif.get_field(Tag::DateTime, In::PRIMARY)?;
             if let Value::Ascii(ref vec) = field.value {
-                if !vec.is_empty() {
-                    if let Ok(datetime) = DateTime::from_ascii(&vec[0]) {
-                        let dest = format!(
-                            "{:?}/{}/{:02}/{:?}",
-                            dest_base, datetime.year, datetime.month, base_name
-                        );
-                        let naive = NaiveDateTime::parse_from_str(
-                            &datetime.to_string(),
-                            "%Y-%m-%d %H:%M:%S",
-                        )
-                        .ok();
-                        return Some(ResolvedFile {
-                            dest_path: dest.into(),
-                            datetime: naive,
-                        });
-                    }
-                }
+                let datetime = vec.first().and_then(|s| DateTime::from_ascii(s).ok())?;
+
+                let dest = format!(
+                    "{}/{}/{:02}/{}",
+                    dest_base.display(),
+                    datetime.year,
+                    datetime.month,
+                    base_name
+                );
+
+                let naive =
+                    NaiveDateTime::parse_from_str(&datetime.to_string(), "%Y-%m-%d %H:%M:%S")
+                        .ok()?;
+
+                return Some(ResolvedFile {
+                    dest_path: dest.into(),
+                    datetime: Some(naive),
+                });
             }
             None
         }
@@ -129,7 +120,7 @@ pub fn resolve_destination(
             if let Some(date_match) = re.find(path_name.to_str()?) {
                 let year: String = date_match.as_str().chars().take(4).collect();
                 let month: String = date_match.as_str().chars().skip(4).take(2).collect();
-                let dest = format!("{:?}/{}/{}/{:?}", dest_base, year, month, base_name);
+                let dest = format!("{}/{}/{}/{}", dest_base.display(), year, month, base_name);
                 Some(ResolvedFile {
                     dest_path: dest.into(),
                     datetime: None,
@@ -159,11 +150,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
         match resolve_destination(&cfg.destination.path, base_name, &path_name.clone().into()) {
             Some(resolved) => {
                 checked += 1;
-                match compare_files(
-                    &path_name.clone().into(),
-                    &resolved.dest_path,
-                    CompareMode::Checksum,
-                ) {
+                match compare_partial(&path_name.clone().into(), &resolved.dest_path) {
                     Ok(true) => {
                         ok += 1;
                     }
@@ -207,8 +194,12 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
         bar.inc(1);
         let path_name = PathBuf::from(base_dir).join(base_name);
         let fsize = path_name.metadata()?.len();
-        totalsize = totalsize + fsize;
-        println!("filesize: {} MB", fsize / 1024 / 1024);
+        totalsize += fsize;
+        println!(
+            "filesize: {} MB | totalsize: {}",
+            fsize / 1024 / 1024,
+            totalsize / 1024 / 1024
+        );
 
         match resolve_destination(&cfg.destination.path, base_name, &path_name) {
             Some(resolved) => {
@@ -224,12 +215,12 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
                     [..resolved.dest_path.to_string_lossy().rfind('/').unwrap_or(0)];
                 let _ = std::fs::create_dir_all(dest_dir);
 
-                if compare_files(&path_name, &resolved.dest_path, CompareMode::Checksum)? {
+                if compare_partial(&path_name, &resolved.dest_path)? {
                     println!("file already exists, skipping: {:?}", resolved.dest_path);
                 } else {
                     std::fs::copy(&path_name, &resolved.dest_path)
                         .with_context(|| format!("copy {}", &path_name.to_string_lossy()))?;
-                    if !compare_files(&path_name, &resolved.dest_path, CompareMode::Strict)? {
+                    if !compare_strict(&path_name, &resolved.dest_path)? {
                         eprintln!(
                             "ERROR: copied file does not match source: {:?}",
                             resolved.dest_path
@@ -280,7 +271,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"hello world");
-        assert!(compare_files(&src, &dst, CompareMode::Checksum).unwrap());
+        assert!(compare_partial(&src, &dst,).unwrap());
     }
 
     #[test]
@@ -288,7 +279,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"goodbye world");
-        assert!(!compare_files(&src, &dst, CompareMode::Checksum).unwrap());
+        assert!(!compare_partial(&src, &dst,).unwrap());
     }
 
     #[test]
@@ -296,7 +287,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello");
         let dst = dir.path().join("nonexistent.bin");
-        assert!(!compare_files(&src, &dst, CompareMode::Checksum).unwrap());
+        assert!(!compare_partial(&src, &dst,).unwrap());
     }
 
     #[test]
@@ -310,7 +301,7 @@ mod tests {
         }
         let src = create_file(&dir, "big_a.bin", &data);
         let dst = create_file(&dir, "big_b.bin", &data);
-        assert!(compare_files(&src, &dst, CompareMode::Checksum).unwrap());
+        assert!(compare_partial(&src, &dst).unwrap());
     }
 
     #[test]
@@ -327,7 +318,7 @@ mod tests {
         let len = data2.len();
         data2[len - 1] ^= 0xFF;
         let dst = create_file(&dir, "big_b.bin", &data2);
-        assert!(!compare_files(&src, &dst, CompareMode::Checksum).unwrap());
+        assert!(!compare_partial(&src, &dst).unwrap());
     }
 
     // --- compare_files: Strict mode ---
@@ -337,7 +328,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"hello world");
-        assert!(compare_files(&src, &dst, CompareMode::Strict).unwrap());
+        assert!(compare_strict(&src, &dst).unwrap());
     }
 
     #[test]
@@ -345,7 +336,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"goodbye world");
-        assert!(!compare_files(&src, &dst, CompareMode::Strict).unwrap());
+        assert!(!compare_strict(&src, &dst).unwrap());
     }
 
     #[test]
@@ -353,83 +344,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello");
         let dst = dir.path().join("nonexistent.bin");
-        assert!(!compare_files(&src, dst.to_str().unwrap(), CompareMode::Strict).unwrap());
+        assert!(!compare_strict(&src, &dst).unwrap());
     }
-
-    // --- move_file ---
-    //
-    // #[test]
-    // fn test_move_file_copies_to_correct_path() {
-    //     let src_dir = TempDir::new().unwrap();
-    //     let dst_dir = TempDir::new().unwrap();
-    //     let src = create_file(&src_dir, "photo.jpg", b"fake image data");
-    //
-    //     let dloc = helpers::DateLoc {
-    //         year: "2024".to_string(),
-    //         month: "03".to_string(),
-    //         source: src.clone(),
-    //         base_name: "photo.jpg".into(),
-    //         destination_base: dst_dir.path().to_str().unwrap().to_string(),
-    //     };
-    //     move_file(dloc);
-    //
-    //     let expected = dst_dir.path().join("2024/03/photo.jpg");
-    //     assert!(expected.exists(), "File should exist at {:?}", expected);
-    //     assert_eq!(std::fs::read(&expected).unwrap(), b"fake image data");
-    // }
-    //
-    // #[test]
-    // fn test_move_file_skips_identical() {
-    //     let src_dir = TempDir::new().unwrap();
-    //     let dst_dir = TempDir::new().unwrap();
-    //     let content = b"identical content";
-    //     let src = create_file(&src_dir, "photo.jpg", content);
-    //
-    //     // Pre-create identical file at destination
-    //     let dest_path = dst_dir.path().join("2024/03/photo.jpg");
-    //     std::fs::create_dir_all(dest_path.parent().unwrap()).unwrap();
-    //     std::fs::write(&dest_path, content).unwrap();
-    //
-    //     let dloc = helpers::DateLoc {
-    //         year: "2024".to_string(),
-    //         month: "03".to_string(),
-    //         source: src.clone(),
-    //         base_name: "photo.jpg".to_string(),
-    //         destination_base: dst_dir.path().to_str().unwrap().to_string(),
-    //     };
-    //     move_file(dloc);
-    //
-    //     // File should still be identical (no error, no corruption)
-    //     assert_eq!(std::fs::read(&dest_path).unwrap(), content);
-    // }
-    //
-    // #[test]
-    // fn test_move_file_preserves_timestamps() {
-    //     let src_dir = TempDir::new().unwrap();
-    //     let dst_dir = TempDir::new().unwrap();
-    //     let src = create_file(&src_dir, "photo.jpg", b"fake image data");
-    //
-    //     // Set a known modification time on the source
-    //     let known_mtime = filetime::FileTime::from_unix_time(1_700_000_000, 0);
-    //     filetime::set_file_mtime(&src, known_mtime).unwrap();
-    //
-    //     let dloc = helpers::DateLoc {
-    //         year: "2024".to_string(),
-    //         month: "03".to_string(),
-    //         source: src.clone(),
-    //         base_name: "photo.jpg".to_string(),
-    //         destination_base: dst_dir.path().to_str().unwrap().to_string(),
-    //     };
-    //     move_file(dloc);
-    //
-    //     let dest_path = dst_dir.path().join("2024/03/photo.jpg");
-    //     let dest_mtime = filetime::FileTime::from_last_modification_time(
-    //         &std::fs::metadata(&dest_path).unwrap(),
-    //     );
-    //     assert_eq!(dest_mtime, known_mtime);
-    // }
-
-    // --- save_files ---
 
     #[test]
     fn test_save_files_jpg_with_exif() {
