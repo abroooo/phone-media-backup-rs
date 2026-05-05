@@ -23,14 +23,17 @@ fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     let mut buffer = vec![0u8; first_chunk_size];
     file.read_exact(&mut buffer)?;
 
-    if file_size > PARTIAL_HASH_SIZE {
-        let last_offset = file_size - PARTIAL_HASH_SIZE;
-        if last_offset > PARTIAL_HASH_SIZE {
-            file.seek(SeekFrom::Start(last_offset))?;
-            let mut tail = vec![0u8; PARTIAL_HASH_SIZE as usize];
-            file.read_exact(&mut tail)?;
-            buffer.extend_from_slice(&tail);
-        }
+    if file_size > 0 {
+        let last_offset = if file_size > PARTIAL_HASH_SIZE {
+            file_size - PARTIAL_HASH_SIZE
+        } else {
+            0
+        };
+        file.seek(SeekFrom::Start(last_offset))?;
+        let tail_len = (file_size - last_offset) as usize;
+        let mut tail = vec![0u8; tail_len];
+        file.read_exact(&mut tail)?;
+        buffer.extend_from_slice(&tail);
     }
 
     Ok(xxh3_64(&buffer))
