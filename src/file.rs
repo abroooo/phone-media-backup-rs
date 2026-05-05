@@ -145,24 +145,44 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
 
     for base_name in &file_names {
         bar.inc(1);
-        let path_name = format!("{}{}", base_dir, base_name);
+        let path_name = match PathBuf::from(&base_dir).join(base_name).canonicalize() {
+            Ok(p) => p,
+            Err(e) => {
+                println!("ERROR accessing {:?}: {}", base_name, e);
+                missing.push(base_name.to_string());
+                continue;
+            }
+        };
+        let canonical_root = match PathBuf::from(base_dir).canonicalize() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("canonicalize failed: {:?} {}", base_dir, e);
+                missing.push(base_name.to_string());
+                continue;
+            }
+        };
+        if !path_name.starts_with(&canonical_root) {
+            eprintln!("path escape attempt: {:?}", path_name);
+            missing.push(path_name.to_string_lossy().to_string());
+            continue;
+        }
 
-        match resolve_destination(&cfg.destination.path, base_name, &path_name.clone().into()) {
+        match resolve_destination(&cfg.destination.path, base_name, &path_name.clone()) {
             Some(resolved) => {
                 checked += 1;
-                match compare_partial(&path_name.clone().into(), &resolved.dest_path) {
+                match compare_partial(&path_name.clone(), &resolved.dest_path) {
                     Ok(true) => {
                         ok += 1;
                     }
                     Ok(false) => {
                         println!(
-                            "MISSING/DIFFERENT: {} -> {:?}",
+                            "MISSING/DIFFERENT: {:?} -> {:?}",
                             &path_name, resolved.dest_path
                         );
                         missing.push(base_name.to_string());
                     }
                     Err(e) => {
-                        println!("ERROR checking {}: {}", path_name, e);
+                        println!("ERROR checking {:?}: {}", path_name, e);
                         missing.push(base_name.to_string());
                     }
                 }
@@ -192,7 +212,13 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     let bar = ProgressBar::new(file_names.len().try_into()?);
     for base_name in file_names {
         bar.inc(1);
-        let path_name = PathBuf::from(base_dir).join(base_name);
+        let path_name = PathBuf::from(base_dir).join(base_name).canonicalize()?;
+        let canonical_root = PathBuf::from(base_dir).canonicalize()?;
+        if !path_name.starts_with(&canonical_root) {
+            eprintln!("path escape attempt: {:?}", path_name);
+            skipped_files.push(path_name);
+            continue;
+        }
         let fsize = path_name.metadata()?.len();
         totalsize += fsize;
         println!(
