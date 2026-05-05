@@ -22,6 +22,7 @@ pub enum Commands {
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MyConfig {
     pub general: General,
     pub source: Source,
