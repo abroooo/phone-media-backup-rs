@@ -1,4 +1,6 @@
-use clap::Parser;
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Parser)]
@@ -6,6 +8,17 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Args {
     #[arg(short, long, help = "Path to the configuration file.")]
     pub config: String,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Run the backup (default when no subcommand is given)
+    Backup,
+    /// Verify that all files on the phone have been backed up
+    Verify,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -24,7 +37,7 @@ pub struct Source {
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Destination {
-    pub path: String,
+    pub path: PathBuf,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct General {

@@ -1,23 +1,23 @@
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct DateLoc {
     pub month: String,
     pub year: String,
-    pub source: String,
-    pub base_name: String,
-    pub destination_base: String,
+    pub source: PathBuf,
+    pub base_name: PathBuf,
+    pub destination_base: PathBuf,
 }
 
-pub fn set_file_times(dest_file: &str, metadata: std::fs::Metadata) -> std::io::Result<()> {
+pub fn set_file_times(dest_file: &PathBuf, metadata: std::fs::Metadata) -> std::io::Result<()> {
     filetime::set_file_times(
-        &dest_file,
+        dest_file,
         filetime::FileTime::from_last_access_time(&metadata),
         filetime::FileTime::from_last_modification_time(&metadata),
     )?;
     Ok(())
 }
 
-pub fn get_extension_from_filename(filename: &str) -> Option<&str> {
+pub fn get_extension_from_filename(filename: &PathBuf) -> Option<&str> {
     Path::new(filename).extension().and_then(OsStr::to_str)
 }

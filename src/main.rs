@@ -40,30 +40,13 @@ impl BackupNotifier {
     }
 }
 
-fn main() -> Result<(), Error> {
+fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
     let notifier = BackupNotifier::new(
         "__CLIENT__",
         "__TOKEN__",
     );
 
     notifier.notify("in progress")?;
-
-    // Command::new("mkdir -p /home/user/dev/rust/phone-media-backup-rs/sshmount && sshfs -p 2222 192.168.1.10:/sdcard/DCIM/Camera /home/user/dev/rust/phone-media-backup-rs/sshmount")
-    //     .spawn();
-    let args = config::Args::parse();
-
-    let config_path = format!(
-        "/home/user/dev/rust/phone-media-backup-rs/config/{}",
-        args.config
-    );
-    let cfg: config::MyConfig =
-        confy::load_path(&config_path).expect("Failed to load configuration");
-
-    dbg!(&cfg);
-    println!("{}", cfg.source.ip);
-
-    // let sess = ssh::get_session(&cfg);
-    let sess = ssh::Ssh::new(&cfg);
 
     // #################################################
     // get start date and build command
@@ -80,7 +63,7 @@ fn main() -> Result<(), Error> {
 
     // #################################################
     // save files
-    let latest_date = file::save_files(&cfg, file_names);
+    let latest_date = file::save_files(&cfg, file_names)?;
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
     println!("Latest date {}", &new_marker);
     let output = Command::new("umount")
@@ -105,8 +88,6 @@ fn main() -> Result<(), Error> {
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
     sess.execute_command(cmd);
     println!("marker set!");
-    // println!("Total size: {}", &totalsize);
-    // println!("Total size: {}", totalsize / 1024 / 1024);
 
     notifier.notify("success")?;
 
@@ -118,5 +99,60 @@ fn main() -> Result<(), Error> {
     // deletion
         + " -exec file {} \\;";
     sess.execute_command(cmd);
+    Ok(())
+}
+
+fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) {
+    // List ALL files on the phone (not just newer than marker)
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
+    let list_of_files = sess.execute_command(cmd);
+
+    let file_names: Vec<&str> = list_of_files
+        .split('\n')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    println!("Found {} files to verify", file_names.len());
+    let missing = file::verify_files(&cfg, file_names);
+
+    let output = Command::new("umount")
+        .arg(&cfg.general.mountpoint)
+        .output()
+        .expect("Failed to execute command");
+
+    if !output.status.success() {
+        eprintln!("umount error: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    if missing.is_empty() {
+        println!("All files verified successfully!");
+    } else {
+        println!("\n{} files NOT backed up:", missing.len());
+        for f in &missing {
+            println!("  {}", f);
+        }
+    }
+}
+
+fn main() -> anyhow::Result<(), anyhow::Error> {
+    let args = config::Args::parse();
+
+    let config_path = format!(
+        "/home/user/dev/rust/phone-media-backup-rs/config/{}",
+        args.config
+    );
+    let cfg: config::MyConfig =
+        confy::load_path(&config_path).expect("Failed to load configuration");
+
+    dbg!(&cfg);
+    println!("{}", cfg.source.ip);
+
+    let sess = ssh::Ssh::new(&cfg);
+
+    match args.command {
+        None | Some(config::Commands::Backup) => run_backup(&cfg, &sess)?,
+        Some(config::Commands::Verify) => run_verify(&cfg, &sess),
+    }
+
     Ok(())
 }

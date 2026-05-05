@@ -23,6 +23,7 @@ clap = { version = "4.5.6", features = ["derive"] }
 reqwest = {version="0.12.5", features = ["blocking", "json"] }
 confy = {version="0.6.1", features = ["yaml_conf"],default-features = false}
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+anyhow = "1.0.102"
 
 [dev-dependencies]
 tempfile = "3"
