@@ -30,7 +30,7 @@ pub struct MyConfig {
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Source {
     pub ip: String,
-    pub port: i32,
+    pub port: u16,
     pub cert: String,
     pub path: String,
     pub clean: Clean,
