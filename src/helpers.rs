@@ -1,14 +1,6 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-pub struct DateLoc {
-    pub month: String,
-    pub year: String,
-    pub source: PathBuf,
-    pub base_name: PathBuf,
-    pub destination_base: PathBuf,
-}
-
 pub fn set_file_times(dest_file: &PathBuf, metadata: std::fs::Metadata) -> std::io::Result<()> {
     filetime::set_file_times(
         dest_file,
