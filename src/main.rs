@@ -1,6 +1,4 @@
-extern crate exif;
 use clap::Parser;
-use std::process::Command;
 
 mod config;
 mod file;
@@ -51,7 +49,7 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // #################################################
     // get start date and build command
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
-    let marker = sess.execute_command(cmd);
+    let marker = sess.execute_command(cmd)?;
 
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
     let list_of_files = sess.execute_command(cmd);
@@ -59,34 +57,19 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // #################################################
     // get list of files to copy
 
-    let file_names: Vec<&str> = list_of_files.split('\n').collect();
+    let binding = list_of_files?;
+    let file_names: Vec<&str> = binding.split('\n').collect();
 
     // #################################################
     // save files
-    let latest_date = file::save_files(&cfg, file_names)?;
+    let latest_date = file::save_files(cfg, file_names)?;
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
     println!("Latest date {}", &new_marker);
-    let output = Command::new("umount")
-        .arg(&cfg.general.mountpoint)
-        .output()
-        .expect("Failed to execute command");
-
-    if !output.status.success() {
-        eprintln!(
-            "Command executed with error: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    } else {
-        println!(
-            "Command executed successfully: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-    }
     // #################################################
     // set marker to latest date
     println!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
-    sess.execute_command(cmd);
+    sess.execute_command(cmd)?;
     println!("marker set!");
 
     notifier.notify("success")?;
@@ -98,31 +81,20 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
     // deletion
         + " -exec file {} \\;";
-    sess.execute_command(cmd);
+    sess.execute_command(cmd)?;
     Ok(())
 }
 
-fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) {
+fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
     // List ALL files on the phone (not just newer than marker)
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
     let list_of_files = sess.execute_command(cmd);
 
-    let file_names: Vec<&str> = list_of_files
-        .split('\n')
-        .filter(|s| !s.is_empty())
-        .collect();
+    let binding = list_of_files?;
+    let file_names: Vec<&str> = binding.split('\n').filter(|s| !s.is_empty()).collect();
 
     println!("Found {} files to verify", file_names.len());
-    let missing = file::verify_files(&cfg, file_names);
-
-    let output = Command::new("umount")
-        .arg(&cfg.general.mountpoint)
-        .output()
-        .expect("Failed to execute command");
-
-    if !output.status.success() {
-        eprintln!("umount error: {}", String::from_utf8_lossy(&output.stderr));
-    }
+    let missing = file::verify_files(cfg, file_names);
 
     if missing.is_empty() {
         println!("All files verified successfully!");
@@ -132,6 +104,7 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) {
             println!("  {}", f);
         }
     }
+    Ok(())
 }
 
 fn main() -> anyhow::Result<(), anyhow::Error> {
@@ -147,11 +120,12 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     dbg!(&cfg);
     println!("{}", cfg.source.ip);
 
-    let sess = ssh::Ssh::new(&cfg);
+    let _mount = ssh::Mount::new(&cfg)?;
+    let sess = ssh::Ssh::new(&cfg)?;
 
     match args.command {
         None | Some(config::Commands::Backup) => run_backup(&cfg, &sess)?,
-        Some(config::Commands::Verify) => run_verify(&cfg, &sess),
+        Some(config::Commands::Verify) => run_verify(&cfg, &sess)?,
     }
 
     Ok(())
