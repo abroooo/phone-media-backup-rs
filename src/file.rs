@@ -182,7 +182,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
         let canonical_root = match PathBuf::from(base_dir).canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                error!("canonicalize failed: {base_dir} {e}");
+                error!("canonicalize failed: {} {e}", base_dir.display());
                 missing.push(base_name.to_string());
                 continue;
             }
@@ -430,7 +430,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -455,7 +455,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -476,7 +476,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -503,7 +503,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -611,7 +611,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -633,7 +633,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -659,7 +659,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {
@@ -680,7 +680,7 @@ mod tests {
 
         let cfg = config::MyConfig {
             general: config::General {
-                mountpoint: mount_dir.path().to_str().unwrap().to_string() + "/",
+                mountpoint: mount_dir.path().to_path_buf(),
             },
             source: Source::default(),
             destination: config::Destination {

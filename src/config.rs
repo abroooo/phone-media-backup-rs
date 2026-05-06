@@ -46,7 +46,7 @@ pub struct Destination {
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct General {
-    pub mountpoint: String,
+    pub mountpoint: PathBuf,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
