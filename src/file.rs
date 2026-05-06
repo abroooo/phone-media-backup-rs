@@ -19,7 +19,7 @@ const STRICT_BUFFER_SIZE: usize = 65536;
 static PXL_RE: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"PXL_(\d{4})(\d{2})(\d{2})_").unwrap());
 
-fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
+fn partial_checksum(path: &Path) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
     let file_size = file.metadata()?.len();
 
@@ -40,8 +40,8 @@ fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     Ok(xxh3_64(&buffer))
 }
 
-pub fn compare_partial(source: &PathBuf, destination: &PathBuf) -> std::io::Result<bool> {
-    if !Path::new(destination).exists() {
+pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<bool> {
+    if !destination.exists() {
         return Ok(false);
     }
     let src_hash = partial_checksum(source)?;
@@ -53,8 +53,8 @@ pub fn compare_partial(source: &PathBuf, destination: &PathBuf) -> std::io::Resu
     Ok(false)
 }
 
-pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Result<bool> {
-    if !Path::new(destination).exists() {
+pub fn compare_strict(source: &Path, destination: &Path) -> std::io::Result<bool> {
+    if !destination.exists() {
         return Ok(false);
     }
 
@@ -99,7 +99,7 @@ pub struct ResolvedFile {
 pub fn resolve_destination(
     dest_base: &Path,
     base_name: &str,
-    path_name: &PathBuf,
+    path_name: &Path,
 ) -> Option<ResolvedFile> {
     let ext = helpers::get_extension_from_filename(path_name)?;
     match ext {
@@ -193,10 +193,10 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
             continue;
         }
 
-        match resolve_destination(&cfg.destination.path, base_name, &path_name.clone()) {
+        match resolve_destination(&cfg.destination.path, base_name, &path_name) {
             Some(resolved) => {
                 checked += 1;
-                match compare_partial(&path_name.clone(), &resolved.dest_path) {
+                match compare_partial(&path_name, &resolved.dest_path) {
                     Ok(true) => {
                         ok += 1;
                     }

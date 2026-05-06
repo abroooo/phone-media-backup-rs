@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub fn set_file_times(dest_file: &PathBuf, metadata: &std::fs::Metadata) -> anyhow::Result<()> {
+pub fn set_file_times(dest_file: &Path, metadata: &std::fs::Metadata) -> anyhow::Result<()> {
     filetime::set_file_times(
         dest_file,
         filetime::FileTime::from_last_access_time(metadata),
@@ -10,6 +10,6 @@ pub fn set_file_times(dest_file: &PathBuf, metadata: &std::fs::Metadata) -> anyh
     Ok(())
 }
 
-pub fn get_extension_from_filename(filename: &PathBuf) -> Option<&str> {
-    Path::new(filename).extension().and_then(OsStr::to_str)
+pub fn get_extension_from_filename(filename: &Path) -> Option<&str> {
+    filename.extension().and_then(OsStr::to_str)
 }
