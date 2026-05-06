@@ -267,19 +267,6 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
             std::fs::create_dir_all(dest_dir)
                 .with_context(|| format!("create_dir_all {}", dest_dir.display()))?;
 
-            // let dest_dir = &resolved.dest_path.to_string_lossy()
-            // // TODO: consider using resolved.dest_path.parent() instead of string manipulation
-            // // to get the directory
-            // [..resolved.dest_path.to_string_lossy().rfind('/').unwrap_or(0)];
-            // match std::fs::create_dir_all(dest_dir) {
-            //     Ok(_) => println!("ensured directory exists: {}", dest_dir),
-            //     Err(e) => {
-            //         eprintln!("ERROR creating directory {}: {}", dest_dir, e);
-            //         skipped_files.push(path_name);
-            //         continue;
-            //     }
-            // }
-
             if compare_partial(&path_name, &resolved.dest_path)? {
                 println!(
                     "file already exists, skipping: {}",
