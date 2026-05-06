@@ -134,12 +134,8 @@ fn main() -> anyhow::Result<()> {
         .init();
     let args = config::Args::parse();
 
-    let config_path = format!(
-        "/home/user/dev/rust/phone-media-backup-rs/config/{}",
-        args.config
-    );
-    let cfg: config::MyConfig =
-        confy::load_path(&config_path).expect("Failed to load configuration");
+    let cfg: config::MyConfig = confy::load_path(std::path::PathBuf::from(&args.config))
+        .expect("Failed to load configuration");
 
     debug!("{:?}", &cfg);
     debug!("{}", cfg.source.ip);
