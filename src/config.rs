@@ -31,6 +31,7 @@ pub struct MyConfig {
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
+    pub user: String,
     pub ip: String,
     pub port: u16,
     pub cert: String,
