@@ -16,6 +16,8 @@ use chrono::{Duration, NaiveDateTime};
 
 const PARTIAL_HASH_SIZE: u64 = 64 * 1024;
 const STRICT_BUFFER_SIZE: usize = 65536;
+static PXL_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"PXL_(\d{4})(\d{2})(\d{2})_").unwrap());
 
 fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
@@ -135,8 +137,7 @@ pub fn resolve_destination(
             None
         }
         "mp4" => {
-            let re = regex::Regex::new(r"PXL_(\d{4})(\d{2})(\d{2})_").unwrap();
-            if let Some(date_match) = re.captures(path_name.to_str()?) {
+            if let Some(date_match) = PXL_RE.captures(path_name.to_str()?) {
                 let year: String = date_match[1].to_string();
                 let month: String = date_match[2].to_string();
                 let day: String = date_match[3].to_string();
