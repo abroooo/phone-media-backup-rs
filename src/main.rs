@@ -46,11 +46,11 @@ impl BackupNotifier {
     }
 }
 
-fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
     let notifier = BackupNotifier::new(
         "__CLIENT__",
         "__TOKEN__",
     );
+fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
 
     notifier.notify("in progress")?;
 
@@ -101,7 +101,7 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     Ok(())
 }
 
-fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
+fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
     // List ALL files on the phone (not just newer than marker)
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
     let list_of_files = sess.execute_command(&cmd)?;
@@ -125,7 +125,7 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     Ok(())
 }
 
-fn main() -> anyhow::Result<(), anyhow::Error> {
+fn main() -> anyhow::Result<()> {
     let indicatif_layer = IndicatifLayer::new();
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
