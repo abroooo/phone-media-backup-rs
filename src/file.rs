@@ -160,7 +160,7 @@ pub fn resolve_destination(
 
 /// Verify that all given files have been backed up by checking checksums.
 /// Returns a list of files that are missing or don't match.
-pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String> {
+pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> {
     let base_dir = &cfg.general.mountpoint;
     let mut missing: Vec<String> = Vec::new();
     let mut checked: usize = 0;
@@ -168,7 +168,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> Vec<String
     let mut skipped: usize = 0;
     let bar = ProgressBar::new(file_names.len().try_into().unwrap());
 
-    for base_name in &file_names {
+    for base_name in file_names {
         bar.inc(1);
         let path_name = match PathBuf::from(&base_dir).join(base_name).canonicalize() {
             Ok(p) => p,
@@ -611,7 +611,7 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert!(missing.is_empty());
     }
 
@@ -633,7 +633,7 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
     }
 
@@ -659,7 +659,7 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["PXL_20240315_a.mp4"]);
+        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
     }
 
@@ -680,7 +680,7 @@ mod tests {
             },
         };
 
-        let missing = verify_files(&cfg, vec!["notes.txt"]);
+        let missing = verify_files(&cfg, &["notes.txt"]);
         assert!(missing.is_empty());
     }
 }

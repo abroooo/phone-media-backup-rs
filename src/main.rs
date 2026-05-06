@@ -102,7 +102,7 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     let file_names: Vec<&str> = binding.split('\n').filter(|s| !s.is_empty()).collect();
 
     println!("Found {} files to verify", file_names.len());
-    let missing = file::verify_files(cfg, file_names);
+    let missing = file::verify_files(cfg, &file_names);
 
     if missing.is_empty() {
         println!("All files verified successfully!");
