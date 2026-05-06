@@ -296,7 +296,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
                     continue;
                 }
                 let metadata = std::fs::metadata(&path_name)?;
-                let _ = helpers::set_file_times(&resolved.dest_path, &metadata);
+                helpers::set_file_times(&resolved.dest_path, &metadata)?;
                 info!(
                     "move {} to {}",
                     path_name.display(),
