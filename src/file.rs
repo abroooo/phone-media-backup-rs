@@ -285,6 +285,15 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
                         "ERROR: copied file does not match source: {}",
                         resolved.dest_path.display()
                     );
+                    if let Err(e) = std::fs::remove_file(&resolved.dest_path) {
+                        error!(
+                            "Failed to remove corrupted file {}: {}",
+                            resolved.dest_path.display(),
+                            e
+                        );
+                    }
+                    skipped_files.push(resolved.dest_path.clone());
+                    continue;
                 }
                 let metadata = std::fs::metadata(&path_name)?;
                 let _ = helpers::set_file_times(&resolved.dest_path, &metadata);
