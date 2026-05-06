@@ -79,7 +79,7 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     let cmd = "cd ".to_owned()
         + &cfg.source.path
         + " && find . -type f -mtime +"
-        + &cfg.source.clean.older_than_days
+        + &cfg.source.clean.older_than_days.to_string()
     // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
     // deletion
         + " -exec file {} \\;";

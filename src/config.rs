@@ -29,6 +29,7 @@ pub struct MyConfig {
     pub destination: Destination,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     pub ip: String,
     pub port: u16,
@@ -37,14 +38,17 @@ pub struct Source {
     pub clean: Clean,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Destination {
     pub path: PathBuf,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct General {
     pub mountpoint: String,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Clean {
-    pub older_than_days: String,
+    pub older_than_days: u16,
 }
