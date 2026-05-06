@@ -8,11 +8,14 @@ mod file;
 mod helpers;
 mod ssh;
 
-use env_logger::Env;
-use log::{debug, info};
 use reqwest::blocking::Client;
 use reqwest::Error;
 use serde_json::json;
+use tracing::{debug, info};
+use tracing_indicatif::IndicatifLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 struct BackupNotifier {
     client: Client,
@@ -119,7 +122,12 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
 }
 
 fn main() -> anyhow::Result<(), anyhow::Error> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    let indicatif_layer = IndicatifLayer::new();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(indicatif_layer)
+        .init();
     let args = config::Args::parse();
 
     let config_path = format!(

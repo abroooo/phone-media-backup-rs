@@ -1,6 +1,6 @@
 use crate::config;
 use anyhow::Context;
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;

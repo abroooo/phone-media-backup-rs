@@ -1,12 +1,13 @@
 use crate::config;
 use crate::helpers;
 use anyhow::Context;
-use indicatif::ProgressBar;
-use log::{error, info};
+use indicatif::ProgressStyle;
 use std::fs::metadata;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use tracing::{error, info, info_span};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 use xxhash_rust::xxh3::xxh3_64;
 
 use exif::{DateTime, In, Reader, Tag, Value};
@@ -167,10 +168,15 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
     let mut checked: usize = 0;
     let mut ok: usize = 0;
     let mut skipped: usize = 0;
-    let bar = ProgressBar::new(file_names.len().try_into().unwrap());
+    let span = info_span!("verify");
+    span.pb_set_style(
+        &ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap(),
+    );
+    span.pb_set_length(file_names.len() as u64);
+    let _enter = span.enter();
 
     for base_name in file_names {
-        bar.inc(1);
+        span.pb_inc(1);
         let path_name = match PathBuf::from(&base_dir).join(base_name).canonicalize() {
             Ok(p) => p,
             Err(e) => {
@@ -220,7 +226,6 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
         }
     }
 
-    bar.finish();
     info!(
         "\nVerify summary: {} checked, {} ok, {} missing/different, {} skipped (unsupported)",
         checked,
@@ -236,8 +241,12 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     let base_dir = &cfg.general.mountpoint;
     let mut latest_date: NaiveDateTime = NaiveDateTime::default();
     let mut totalsize: u64 = 0;
-    // TODO: fix progressBar to the bottom to avoid interference with log output
-    let bar = ProgressBar::new(file_names.len().try_into()?);
+    let span = info_span!("save_files");
+    span.pb_set_style(
+        &ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap(),
+    );
+    span.pb_set_length(file_names.len() as u64);
+    let _enter = span.enter();
     for base_name in file_names {
         let path_name = PathBuf::from(base_dir).join(base_name).canonicalize()?;
         let canonical_root = PathBuf::from(base_dir).canonicalize()?;
@@ -310,9 +319,9 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
         }
 
         info!("_________________________________________________________________________________________");
-        bar.inc(1);
+        span.pb_inc(1);
     }
-    bar.finish_with_message("Done!");
+    span.pb_set_finish_message("Done!");
     for x in &skipped_files {
         info!("skipped file: {}", x.display());
     }
