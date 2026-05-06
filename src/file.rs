@@ -15,6 +15,7 @@ use std::io::BufReader;
 use chrono::{Duration, NaiveDateTime};
 
 const PARTIAL_HASH_SIZE: u64 = 64 * 1024;
+const STRICT_BUFFER_SIZE: usize = 65536;
 
 fn partial_checksum(path: &PathBuf) -> std::io::Result<u64> {
     let mut file = File::open(path)?;
@@ -64,16 +65,14 @@ pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Resul
     let mut file1 = File::open(source)?;
     let mut file2 = File::open(destination)?;
 
-    // let mut buffer1 = [0; 65536];
-    let mut buffer1 = vec![0; 65536].into_boxed_slice();
-    let mut buffer2 = vec![0; 65536].into_boxed_slice();
-    // let mut buffer2 = [0; 65536];
+    let mut buffer1 = vec![0; STRICT_BUFFER_SIZE].into_boxed_slice();
+    let mut buffer2 = vec![0; STRICT_BUFFER_SIZE].into_boxed_slice();
 
     let file_size = usize::try_from(m1.len()).unwrap_or(0);
     let mut remaining = file_size;
 
     while remaining > 0 {
-        let chunk_size = std::cmp::min(65536, remaining);
+        let chunk_size = std::cmp::min(STRICT_BUFFER_SIZE, remaining);
         file1.read_exact(&mut buffer1[..chunk_size])?;
         file2.read_exact(&mut buffer2[..chunk_size])?;
 
@@ -307,7 +306,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     for x in &skipped_files {
         info!("skipped file: {}", x.display());
     }
-    Ok(latest_date - Duration::seconds(60 * 60 * 24))
+    Ok(latest_date - Duration::days(1))
 }
 
 #[cfg(test)]
