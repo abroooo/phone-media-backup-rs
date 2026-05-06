@@ -2,6 +2,7 @@ use crate::config;
 use crate::helpers;
 use anyhow::Context;
 use indicatif::ProgressBar;
+use log::{error, info};
 use std::fs::metadata;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -43,7 +44,7 @@ pub fn compare_partial(source: &PathBuf, destination: &PathBuf) -> std::io::Resu
     let src_hash = partial_checksum(source)?;
     let dst_hash = partial_checksum(destination)?;
     if src_hash == dst_hash {
-        println!("files are identical (checksum match)");
+        info!("files are identical (checksum match)");
         return Ok(true);
     }
     Ok(false)
@@ -83,7 +84,7 @@ pub fn compare_strict(source: &PathBuf, destination: &PathBuf) -> std::io::Resul
         remaining -= chunk_size;
     }
 
-    println!("files are identical (strict match)");
+    info!("files are identical (strict match)");
     Ok(true)
 }
 
@@ -173,7 +174,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
         let path_name = match PathBuf::from(&base_dir).join(base_name).canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                println!("ERROR accessing {base_name}: {e}");
+                error!("ERROR accessing {base_name}: {e}");
                 missing.push(base_name.to_string());
                 continue;
             }
@@ -181,13 +182,13 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
         let canonical_root = match PathBuf::from(base_dir).canonicalize() {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("canonicalize failed: {base_dir} {e}");
+                error!("canonicalize failed: {base_dir} {e}");
                 missing.push(base_name.to_string());
                 continue;
             }
         };
         if !path_name.starts_with(&canonical_root) {
-            eprintln!("path escape attempt: {}", path_name.display());
+            error!("path escape attempt: {}", path_name.display());
             missing.push(path_name.to_string_lossy().to_string());
             continue;
         }
@@ -200,7 +201,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
                         ok += 1;
                     }
                     Ok(false) => {
-                        println!(
+                        info!(
                             "MISSING/DIFFERENT: {} -> {}",
                             &path_name.display(),
                             resolved.dest_path.display()
@@ -208,7 +209,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
                         missing.push(base_name.to_string());
                     }
                     Err(e) => {
-                        println!("ERROR checking {}: {}", path_name.display(), e);
+                        error!("ERROR checking {}: {}", path_name.display(), e);
                         missing.push(base_name.to_string());
                     }
                 }
@@ -220,7 +221,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
     }
 
     bar.finish();
-    println!(
+    info!(
         "\nVerify summary: {} checked, {} ok, {} missing/different, {} skipped (unsupported)",
         checked,
         ok,
@@ -235,26 +236,26 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     let base_dir = &cfg.general.mountpoint;
     let mut latest_date: NaiveDateTime = NaiveDateTime::default();
     let mut totalsize: u64 = 0;
+    // TODO: fix progressBar to the bottom to avoid interference with log output
     let bar = ProgressBar::new(file_names.len().try_into()?);
     for base_name in file_names {
-        bar.inc(1);
         let path_name = PathBuf::from(base_dir).join(base_name).canonicalize()?;
         let canonical_root = PathBuf::from(base_dir).canonicalize()?;
         if !path_name.starts_with(&canonical_root) {
-            eprintln!("path escape attempt: {}", path_name.display());
+            error!("path escape attempt: {}", path_name.display());
             skipped_files.push(path_name);
             continue;
         }
         let fsize = path_name.metadata()?.len();
         totalsize += fsize;
-        println!(
+        info!(
             "filesize: {} MB | totalsize: {}",
             fsize / 1024 / 1024,
             totalsize / 1024 / 1024
         );
 
         if let Some(resolved) = resolve_destination(&cfg.destination.path, base_name, &path_name) {
-            println!("{}", &path_name.display());
+            info!("{}", &path_name.display());
             if let Some(dt) = resolved.datetime {
                 if dt > latest_date {
                     latest_date = dt;
@@ -268,12 +269,12 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
                 .with_context(|| format!("create_dir_all {}", dest_dir.display()))?;
 
             if compare_partial(&path_name, &resolved.dest_path)? {
-                println!(
+                info!(
                     "file already exists, skipping: {}",
                     resolved.dest_path.display()
                 );
             } else {
-                println!(
+                info!(
                     "copying {} to {}",
                     path_name.display(),
                     resolved.dest_path.display()
@@ -281,34 +282,32 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
                 std::fs::copy(&path_name, &resolved.dest_path)
                     .with_context(|| format!("copy {}", &path_name.to_string_lossy()))?;
                 if !compare_strict(&path_name, &resolved.dest_path)? {
-                    eprintln!(
+                    error!(
                         "ERROR: copied file does not match source: {}",
                         resolved.dest_path.display()
                     );
                 }
                 let metadata = std::fs::metadata(&path_name)?;
                 let _ = helpers::set_file_times(&resolved.dest_path, &metadata);
-                println!(
+                info!(
                     "move {} to {}",
                     path_name.display(),
                     resolved.dest_path.display()
                 );
             }
         } else {
-            eprintln!("skipping (unsupported or no date): {}", path_name.display());
+            error!("skipping (unsupported or no date): {}", path_name.display());
             skipped_files.push(path_name);
         }
 
-        println!("_________________________________________________________________________________________");
+        info!("_________________________________________________________________________________________");
+        bar.inc(1);
     }
-    bar.finish();
+    bar.finish_with_message("Done!");
     for x in &skipped_files {
-        println!("skipped file: {}", x.display());
+        info!("skipped file: {}", x.display());
     }
-    let marker_date = latest_date - Duration::seconds(60 * 60 * 24); // set marker to 1 day before latest date to
-                                                                     // not miss files that are created after
-                                                                     // backup but on the same day
-    Ok(marker_date)
+    Ok(latest_date - Duration::seconds(60 * 60 * 24))
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
+use std::env;
+
 use clap::Parser;
 
 mod config;
@@ -7,6 +9,7 @@ mod file;
 mod helpers;
 mod ssh;
 
+use log::{debug, info};
 use reqwest::blocking::Client;
 use reqwest::Error;
 use serde_json::json;
@@ -54,11 +57,11 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     let marker = sess.execute_command(&cmd)?;
 
     let list_of_files = if marker.is_empty() {
-        println!("Marker file is empty, setting it to 1970-01-01");
+        info!("Marker file is empty, setting it to 1970-01-01");
         let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt 1970-01-01";
         sess.execute_command(&cmd)
     } else {
-        println!("Marker file exists with date: {}", &marker);
+        debug!("Marker file exists with date: {}", &marker);
         let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
         sess.execute_command(&cmd)
     }?;
@@ -72,13 +75,13 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     // save files
     let latest_date = file::save_files(cfg, file_names)?;
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
-    println!("Latest date {}", &new_marker);
+    debug!("Latest date {}", &new_marker);
     // #################################################
     // set marker to latest date
-    println!("Set marker");
+    info!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
     sess.execute_command(&cmd)?;
-    println!("marker set!");
+    info!("marker set!");
 
     notifier.notify("success")?;
 
@@ -101,21 +104,23 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     let binding = list_of_files?;
     let file_names: Vec<&str> = binding.split('\n').filter(|s| !s.is_empty()).collect();
 
-    println!("Found {} files to verify", file_names.len());
+    info!("Found {} files to verify", file_names.len());
     let missing = file::verify_files(cfg, &file_names);
 
     if missing.is_empty() {
-        println!("All files verified successfully!");
+        info!("All files verified successfully!");
     } else {
-        println!("\n{} files NOT backed up:", missing.len());
+        info!("\n{} files NOT backed up:", missing.len());
         for f in &missing {
-            println!("  {f}");
+            info!("  {f}");
         }
     }
     Ok(())
 }
 
 fn main() -> anyhow::Result<(), anyhow::Error> {
+    env::set_var("RUST_LOG", "debug");
+    env_logger::init();
     let args = config::Args::parse();
 
     let config_path = format!(
@@ -125,8 +130,8 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     let cfg: config::MyConfig =
         confy::load_path(&config_path).expect("Failed to load configuration");
 
-    dbg!(&cfg);
-    println!("{}", cfg.source.ip);
+    debug!("{:?}", &cfg);
+    debug!("{}", cfg.source.ip);
 
     let _mount = ssh::Mount::new(&cfg)?;
     let sess = ssh::Ssh::new(&cfg)?;

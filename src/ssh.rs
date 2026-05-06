@@ -1,5 +1,6 @@
 use crate::config;
 use anyhow::Context;
+use log::{debug, error, info};
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
@@ -31,19 +32,19 @@ impl Drop for Mount {
         match r {
             Ok(output) => {
                 if !output.status.success() {
-                    eprintln!(
+                    error!(
                         "unmount failed: {}",
                         String::from_utf8_lossy(&output.stderr)
                     );
                 }
-                println!(
+                info!(
                     "Unmounted {}: {}",
                     self.mountpoint.display(),
                     String::from_utf8_lossy(&output.stdout)
                 );
             }
             Err(e) => {
-                eprintln!("Failed to execute unmount: {e}");
+                error!("Failed to execute unmount: {e}");
             }
         }
     }
@@ -99,7 +100,7 @@ impl Ssh {
             .context(format!("Failed to execute command: {cmd}"))?;
         let mut s = String::new();
         channel.read_to_string(&mut s).unwrap();
-        println!("{}", &s);
+        debug!("{}", &s);
         Ok(s)
     }
 }
