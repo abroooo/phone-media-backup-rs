@@ -71,8 +71,10 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
 
     // #################################################
     // get list of files to copy
-    let binding = list_of_files;
-    let file_names: Vec<&str> = binding.split('\n').collect();
+    let file_names: Vec<&str> = list_of_files
+        .split('\n')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     // #################################################
     // save files
@@ -102,10 +104,12 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
 fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), anyhow::Error> {
     // List ALL files on the phone (not just newer than marker)
     let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
-    let list_of_files = sess.execute_command(&cmd);
+    let list_of_files = sess.execute_command(&cmd)?;
 
-    let binding = list_of_files?;
-    let file_names: Vec<&str> = binding.split('\n').filter(|s| !s.is_empty()).collect();
+    let file_names: Vec<&str> = list_of_files
+        .split('\n')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     info!("Found {} files to verify", file_names.len());
     let missing = file::verify_files(cfg, &file_names);
