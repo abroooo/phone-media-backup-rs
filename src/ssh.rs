@@ -99,7 +99,9 @@ impl Ssh {
             // .exec("ls -l /sdcard/DCIM/Camera | awk '{print $8}'")
             .context(format!("Failed to execute command: {cmd}"))?;
         let mut s = String::new();
-        channel.read_to_string(&mut s).unwrap();
+        channel
+            .read_to_string(&mut s)
+            .context("Failed to read command output")?;
         debug!("{}", &s);
         Ok(s)
     }
