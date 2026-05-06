@@ -1,6 +1,5 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
-use std::env;
 
 use clap::Parser;
 
@@ -9,6 +8,7 @@ mod file;
 mod helpers;
 mod ssh;
 
+use env_logger::Env;
 use log::{debug, info};
 use reqwest::blocking::Client;
 use reqwest::Error;
@@ -119,8 +119,7 @@ fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
 }
 
 fn main() -> anyhow::Result<(), anyhow::Error> {
-    env::set_var("RUST_LOG", "debug");
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = config::Args::parse();
 
     let config_path = format!(
