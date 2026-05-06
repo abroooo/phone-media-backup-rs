@@ -53,13 +53,19 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<(), any
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
     let marker = sess.execute_command(&cmd)?;
 
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
-    let list_of_files = sess.execute_command(&cmd);
+    let list_of_files = if marker.is_empty() {
+        println!("Marker file is empty, setting it to 1970-01-01");
+        let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt 1970-01-01";
+        sess.execute_command(&cmd)
+    } else {
+        println!("Marker file exists with date: {}", &marker);
+        let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
+        sess.execute_command(&cmd)
+    }?;
 
     // #################################################
     // get list of files to copy
-
-    let binding = list_of_files?;
+    let binding = list_of_files;
     let file_names: Vec<&str> = binding.split('\n').collect();
 
     // #################################################
