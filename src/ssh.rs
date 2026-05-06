@@ -1,11 +1,11 @@
 use crate::config;
 use anyhow::Context;
-use tracing::{debug, error, info};
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing::{debug, error, info};
 
 pub struct Mount {
     mountpoint: PathBuf,
@@ -15,7 +15,11 @@ impl Mount {
         let out = Command::new("sshfs")
             .arg("-p")
             .arg(cfg.source.port.to_string())
-            .arg(cfg.source.ip.clone() + ":" + &cfg.source.path.clone())
+            .arg(format!(
+                "{}:{}",
+                cfg.source.ip.clone(),
+                &cfg.source.path.clone()
+            ))
             .arg(&cfg.general.mountpoint)
             .output()?;
         if !out.status.success() {
