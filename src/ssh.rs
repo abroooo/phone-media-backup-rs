@@ -36,6 +36,11 @@ impl Drop for Mount {
                         String::from_utf8_lossy(&output.stderr)
                     );
                 }
+                println!(
+                    "Unmounted {}: {}",
+                    self.mountpoint.display(),
+                    String::from_utf8_lossy(&output.stdout)
+                );
             }
             Err(e) => {
                 eprintln!("Failed to execute unmount: {e}");
