@@ -46,29 +46,25 @@ impl BackupNotifier {
     }
 }
 
-    let notifier = BackupNotifier::new(
-        "__CLIENT__",
-        "__TOKEN__",
-    );
-fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
+fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
+    // let notifier = BackupNotifier::new("__CLIENT__", "__TOKEN__");
 
-    notifier.notify("in progress")?;
+    // notifier.notify("in progress")?;
 
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
     let marker = sess.execute_command(&cmd)?;
 
-    if !is_valid_date_format(&marker) {
-        anyhow::bail!("Marker file has invalid date format. Modify or delete the marker file on the phone to fix this issue. Expected format: YYYY-MM-DD");
-    }
-    let list_of_files = if marker.is_empty() {
+    let date = if marker.is_empty() {
         info!("Marker file is empty, setting it to 1970-01-01");
-        let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt 1970-01-01";
-        sess.execute_command(&cmd)
+        "1970-01-01".to_string()
+    } else if !is_valid_date_format(&marker) {
+        anyhow::bail!("Marker file has invalid date format. Modify or delete the marker file on the phone to fix this issue. Expected format: YYYY-MM-DD");
     } else {
         debug!("Marker file exists with date: {}", &marker);
-        let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &marker;
-        sess.execute_command(&cmd)
-    }?;
+        marker
+    };
+    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &date;
+    let list_of_files = sess.execute_command(&cmd)?;
 
     let file_names: Vec<&str> = list_of_files
         .split('\n')
@@ -170,7 +166,11 @@ fn main() -> anyhow::Result<()> {
 }
 fn is_valid_date_format(date_str: &str) -> bool {
     // Compile the regex pattern
-    let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}\s*$").unwrap();
+    let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}\r?\n?$").unwrap();
+    debug!(
+        "Checking if marker file content '{}' matches date format YYYY-MM-DD",
+        date_str
+    );
 
     // Check if the string matches the pattern
     re.is_match(date_str)
