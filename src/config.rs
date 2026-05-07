@@ -9,16 +9,35 @@ pub struct Args {
     #[arg(short, long, help = "Path to the configuration file.")]
     pub config: String,
 
+    #[arg(
+        short = 'n',
+        long,
+        global = true,
+        help = "For the cleanup phase: list candidates instead of deleting. No effect on backup/verify."
+    )]
+    pub dry_run: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Run the backup (default when no subcommand is given)
-    Backup,
+    /// Save new files from the phone (default when no subcommand is given)
+    Backup(BackupArgs),
     /// Verify that all files on the phone have been backed up
     Verify,
+    /// Delete source files older than `source.clean.older_than_days`
+    Clean,
+}
+
+#[derive(clap::Args, Default)]
+pub struct BackupArgs {
+    #[arg(
+        long,
+        help = "After save, also run cleanup. Equivalent to chaining `backup` then `clean`."
+    )]
+    pub clean: bool,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]

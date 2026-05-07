@@ -54,8 +54,6 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
 
     notifier.notify("in progress")?;
 
-    // #################################################
-    // get start date and build command
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
     let marker = sess.execute_command(&cmd)?;
 
@@ -72,34 +70,42 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
         sess.execute_command(&cmd)
     }?;
 
-    // #################################################
-    // get list of files to copy
     let file_names: Vec<&str> = list_of_files
         .split('\n')
         .filter(|s| !s.is_empty())
         .collect();
 
-    // #################################################
-    // save files
     let latest_date = file::save_files(cfg, file_names)?;
     let new_marker = latest_date.format("%Y-%m-%d").to_string();
     debug!("Latest date {}", &new_marker);
-    // #################################################
-    // set marker to latest date
+
     info!("Set marker");
     let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
     sess.execute_command(&cmd)?;
     info!("marker set!");
 
     notifier.notify("success")?;
+    Ok(())
+}
 
+fn run_clean(cfg: &config::MyConfig, sess: &ssh::Ssh, dry_run: bool) -> anyhow::Result<()> {
+    let mtime_arg = cfg.source.clean.older_than_days.to_string();
+    let action = if dry_run {
+        "-print"
+    } else {
+        "-exec rm -f {} \\;"
+    };
+    let mode = if dry_run { "dry-run list" } else { "delete" };
+    info!(
+        "cleanup ({mode}): files older than {} days under {}",
+        mtime_arg, &cfg.source.path
+    );
     let cmd = "cd ".to_owned()
         + &cfg.source.path
         + " && find . -type f -mtime +"
-        + &cfg.source.clean.older_than_days.to_string()
-    // TODO: replace <file> with <rm -f> and protect this part with a cli flag to avoid accidental
-    // deletion
-        + " -exec file {} \\;";
+        + &mtime_arg
+        + " "
+        + action;
     sess.execute_command(&cmd)?;
     Ok(())
 }
@@ -146,9 +152,18 @@ fn main() -> anyhow::Result<()> {
     let sess = ssh::Ssh::new(&cfg)?;
     let _mount = ssh::Mount::new(&cfg)?;
 
-    match args.command {
-        None | Some(config::Commands::Backup) => run_backup(&cfg, &sess)?,
-        Some(config::Commands::Verify) => run_verify(&cfg, &sess)?,
+    let cmd = args
+        .command
+        .unwrap_or_else(|| config::Commands::Backup(config::BackupArgs::default()));
+    match cmd {
+        config::Commands::Backup(b) => {
+            run_save(&cfg, &sess)?;
+            if b.clean {
+                run_clean(&cfg, &sess, args.dry_run)?;
+            }
+        }
+        config::Commands::Verify => run_verify(&cfg, &sess)?,
+        config::Commands::Clean => run_clean(&cfg, &sess, args.dry_run)?,
     }
 
     Ok(())
