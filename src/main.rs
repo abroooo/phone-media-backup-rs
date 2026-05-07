@@ -51,7 +51,7 @@ fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
 
     // notifier.notify("in progress")?;
 
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
+    let cmd = format!("cd {} && cat marker", &cfg.source.path);
     let marker = sess.execute_command(&cmd)?;
 
     let date = if marker.is_empty() {
@@ -63,7 +63,10 @@ fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
         debug!("Marker file exists with date: {}", &marker);
         marker
     };
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt " + &date;
+    let cmd = format!(
+        "cd {} && find . -type f -newermt {}",
+        &cfg.source.path, &date
+    );
     let list_of_files = sess.execute_command(&cmd)?;
 
     let file_names: Vec<&str> = list_of_files
@@ -76,7 +79,7 @@ fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
     debug!("Latest date {}", &new_marker);
 
     info!("Set marker");
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && echo " + new_marker.as_str() + "> marker";
+    let cmd = format!("cd {} && echo {} > marker", &cfg.source.path, new_marker);
     sess.execute_command(&cmd)?;
     info!("marker set!");
 
@@ -96,19 +99,17 @@ fn run_clean(cfg: &config::MyConfig, sess: &ssh::Ssh, dry_run: bool) -> anyhow::
         "cleanup ({mode}): files older than {} days under {}",
         mtime_arg, &cfg.source.path
     );
-    let cmd = "cd ".to_owned()
-        + &cfg.source.path
-        + " && find . -type f -mtime +"
-        + &mtime_arg
-        + " "
-        + action;
+    let cmd = format!(
+        "cd {} && find . -type f -mtime +{} {}",
+        &cfg.source.path, mtime_arg, action
+    );
     sess.execute_command(&cmd)?;
     Ok(())
 }
 
 fn run_verify(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
     // List ALL files on the phone (not just newer than marker)
-    let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f";
+    let cmd = format!("cd {} && find . -type f", &cfg.source.path);
     let list_of_files = sess.execute_command(&cmd)?;
 
     let file_names: Vec<&str> = list_of_files
