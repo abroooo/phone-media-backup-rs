@@ -234,9 +234,97 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
     missing
 }
 
-pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
-    let mut skipped_files: Vec<PathBuf> = Vec::new();
+enum FileOutcome {
+    Skipped,
+    Processed(Option<NaiveDateTime>),
+}
+
+fn save_one(
+    cfg: &config::MyConfig,
+    base_name: &str,
+    canonical_root: &Path,
+    totalsize: &mut u64,
+) -> anyhow::Result<FileOutcome> {
     let base_dir = &cfg.general.mountpoint;
+    let path_name = PathBuf::from(base_dir)
+        .join(base_name)
+        .canonicalize()
+        .with_context(|| format!("canonicalize {base_name}"))?;
+    if !path_name.starts_with(canonical_root) {
+        anyhow::bail!("path escape: {}", path_name.display());
+    }
+    let fsize = path_name
+        .metadata()
+        .with_context(|| format!("metadata {}", path_name.display()))?
+        .len();
+    *totalsize += fsize;
+    info!(
+        "filesize: {} MB | totalsize: {}",
+        fsize / 1024 / 1024,
+        *totalsize / 1024 / 1024
+    );
+
+    let Some(resolved) = resolve_destination(&cfg.destination.path, base_name, &path_name) else {
+        info!("skipping (unsupported or no date): {}", path_name.display());
+        return Ok(FileOutcome::Skipped);
+    };
+
+    info!("{}", path_name.display());
+    let dest_dir = resolved
+        .dest_path
+        .parent()
+        .with_context(|| format!("no parent for {}", resolved.dest_path.display()))?;
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("create_dir_all {}", dest_dir.display()))?;
+
+    if compare_partial(&path_name, &resolved.dest_path)
+        .with_context(|| format!("compare_partial {}", path_name.display()))?
+    {
+        info!(
+            "file already exists, skipping: {}",
+            resolved.dest_path.display()
+        );
+    } else {
+        info!(
+            "copying {} to {}",
+            path_name.display(),
+            resolved.dest_path.display()
+        );
+        std::fs::copy(&path_name, &resolved.dest_path)
+            .with_context(|| format!("copy {}", path_name.display()))?;
+        if !compare_strict(&path_name, &resolved.dest_path)
+            .with_context(|| format!("compare_strict {}", path_name.display()))?
+        {
+            if let Err(e) = std::fs::remove_file(&resolved.dest_path) {
+                error!(
+                    "Failed to remove corrupted file {}: {}",
+                    resolved.dest_path.display(),
+                    e
+                );
+            }
+            anyhow::bail!(
+                "copied file does not match source: {}",
+                resolved.dest_path.display()
+            );
+        }
+        let metadata = std::fs::metadata(&path_name)
+            .with_context(|| format!("metadata {}", path_name.display()))?;
+        helpers::set_file_times(&resolved.dest_path, &metadata)?;
+        info!(
+            "move {} to {}",
+            path_name.display(),
+            resolved.dest_path.display()
+        );
+    }
+    Ok(FileOutcome::Processed(resolved.datetime))
+}
+
+pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
+    let mut skipped_files: Vec<String> = Vec::new();
+    let base_dir = &cfg.general.mountpoint;
+    let canonical_root = PathBuf::from(base_dir)
+        .canonicalize()
+        .with_context(|| format!("canonicalize root {}", base_dir.display()))?;
     let mut latest_date: NaiveDateTime = NaiveDateTime::default();
     let mut totalsize: u64 = 0;
     let span = info_span!("save_files");
@@ -244,82 +332,27 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     span.pb_set_length(file_names.len() as u64);
     let _enter = span.enter();
     for base_name in file_names {
-        let path_name = PathBuf::from(base_dir).join(base_name).canonicalize()?;
-        let canonical_root = PathBuf::from(base_dir).canonicalize()?;
-        if !path_name.starts_with(&canonical_root) {
-            error!("path escape attempt: {}", path_name.display());
-            skipped_files.push(path_name);
-            continue;
-        }
-        let fsize = path_name.metadata()?.len();
-        totalsize += fsize;
-        info!(
-            "filesize: {} MB | totalsize: {}",
-            fsize / 1024 / 1024,
-            totalsize / 1024 / 1024
-        );
-
-        if let Some(resolved) = resolve_destination(&cfg.destination.path, base_name, &path_name) {
-            info!("{}", &path_name.display());
-            if let Some(dt) = resolved.datetime {
+        span.pb_inc(1);
+        match save_one(cfg, base_name, &canonical_root, &mut totalsize) {
+            Ok(FileOutcome::Processed(Some(dt))) => {
                 if dt > latest_date {
                     latest_date = dt;
                 }
             }
-            let dest_dir = resolved
-                .dest_path
-                .parent()
-                .with_context(|| format!("no parent for {}", resolved.dest_path.display()))?;
-            std::fs::create_dir_all(dest_dir)
-                .with_context(|| format!("create_dir_all {}", dest_dir.display()))?;
-
-            if compare_partial(&path_name, &resolved.dest_path)? {
-                info!(
-                    "file already exists, skipping: {}",
-                    resolved.dest_path.display()
-                );
-            } else {
-                info!(
-                    "copying {} to {}",
-                    path_name.display(),
-                    resolved.dest_path.display()
-                );
-                std::fs::copy(&path_name, &resolved.dest_path)
-                    .with_context(|| format!("copy {}", &path_name.to_string_lossy()))?;
-                if !compare_strict(&path_name, &resolved.dest_path)? {
-                    error!(
-                        "ERROR: copied file does not match source: {}",
-                        resolved.dest_path.display()
-                    );
-                    if let Err(e) = std::fs::remove_file(&resolved.dest_path) {
-                        error!(
-                            "Failed to remove corrupted file {}: {}",
-                            resolved.dest_path.display(),
-                            e
-                        );
-                    }
-                    skipped_files.push(resolved.dest_path.clone());
-                    continue;
-                }
-                let metadata = std::fs::metadata(&path_name)?;
-                helpers::set_file_times(&resolved.dest_path, &metadata)?;
-                info!(
-                    "move {} to {}",
-                    path_name.display(),
-                    resolved.dest_path.display()
-                );
+            Ok(FileOutcome::Processed(None)) => {}
+            Ok(FileOutcome::Skipped) => {
+                skipped_files.push(base_name.to_string());
             }
-        } else {
-            error!("skipping (unsupported or no date): {}", path_name.display());
-            skipped_files.push(path_name);
+            Err(e) => {
+                error!("skip {base_name}: {e:#}");
+                skipped_files.push(base_name.to_string());
+            }
         }
-
         info!("_________________________________________________________________________________________");
-        span.pb_inc(1);
     }
     span.pb_set_finish_message("Done!");
     for x in &skipped_files {
-        info!("skipped file: {}", x.display());
+        info!("skipped file: {x}");
     }
     Ok(latest_date - Duration::days(1))
 }
@@ -524,6 +557,69 @@ mod tests {
         assert_eq!(
             result,
             NaiveDateTime::parse_from_str("2024-05-31 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_save_files_continues_on_missing_file() {
+        let jpeg = make_test_jpeg();
+        let mount_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let _src = create_file_at(mount_dir.path(), "good.jpg", &jpeg);
+
+        let cfg = config::MyConfig {
+            general: config::General {
+                mountpoint: mount_dir.path().to_path_buf(),
+            },
+            source: Source::default(),
+            destination: config::Destination {
+                path: dst_dir.path().into(),
+            },
+        };
+
+        let result = save_files(&cfg, vec!["does_not_exist.jpg", "good.jpg"]).unwrap();
+        let expected = dst_dir.path().join("2023/07/good.jpg");
+        assert!(
+            expected.exists(),
+            "good file should be saved despite earlier bad path"
+        );
+        assert_eq!(
+            result,
+            NaiveDateTime::parse_from_str("2023-07-14 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_save_files_mixed_returns_latest_from_good() {
+        // Bad path between two good files: run completes, marker reflects the latest good date.
+        let jpeg = make_test_jpeg();
+        let mount_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let _early = create_file_at(mount_dir.path(), "PXL_20220101_x.mp4", b"mp4 data");
+        let _late = create_file_at(mount_dir.path(), "later.jpg", &jpeg);
+
+        let cfg = config::MyConfig {
+            general: config::General {
+                mountpoint: mount_dir.path().to_path_buf(),
+            },
+            source: Source::default(),
+            destination: config::Destination {
+                path: dst_dir.path().into(),
+            },
+        };
+
+        let result = save_files(
+            &cfg,
+            vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"],
+        )
+        .unwrap();
+
+        assert!(dst_dir.path().join("2022/01/PXL_20220101_x.mp4").exists());
+        assert!(dst_dir.path().join("2023/07/later.jpg").exists());
+        // jpg's 2023-07-15 10:30:00 wins over mp4's 2022-01-01 00:00:00, minus 1 day.
+        assert_eq!(
+            result,
+            NaiveDateTime::parse_from_str("2023-07-14 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
         );
     }
 
