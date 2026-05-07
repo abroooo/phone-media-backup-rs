@@ -63,6 +63,7 @@ pub struct Source {
         deserialize_with = "deserialize_path_with_tilde"
     )]
     pub cert: PathBuf,
+    #[serde(deserialize_with = "deserialize_remote_path")]
     pub path: String,
     pub clean: Clean,
 }
@@ -110,6 +111,42 @@ where
     Ok(expand_tilde(&path))
 }
 
+fn deserialize_remote_path<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let path = String::deserialize(deserializer)?;
+    validate_remote_path(&path).map_err(D::Error::custom)?;
+    Ok(path)
+}
+
+fn validate_remote_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("source.path is empty".into());
+    }
+    if !path.starts_with('/') {
+        return Err(format!("source.path must be absolute, got {path:?}"));
+    }
+    if path.len() > 1 && path.ends_with('/') {
+        return Err(format!("source.path must not end with '/', got {path:?}"));
+    }
+    for (i, c) in path.char_indices() {
+        let ok = c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-');
+        if !ok {
+            return Err(format!(
+                "source.path contains disallowed character {c:?} at byte {i} \
+                   (allowed: A-Z a-z 0-9 / . _ -)"
+            ));
+        }
+    }
+    if path.split('/').any(|seg| seg == "..") {
+        return Err(format!(
+            "source.path must not contain '..' segments, got {path:?}"
+        ));
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +183,52 @@ mod tests {
             expand_tilde(Path::new("/etc/foo~bar")),
             PathBuf::from("/etc/foo~bar")
         );
+    }
+
+    #[test]
+    fn validate_remote_path_accepts_typical() {
+        assert!(validate_remote_path("/sdcard/DCIM/Camera").is_ok());
+        assert!(validate_remote_path("/storage/emulated/0/DCIM").is_ok());
+        assert!(validate_remote_path("/a").is_ok());
+    }
+
+    #[test]
+    fn validate_remote_path_rejects_empty_and_relative() {
+        assert!(validate_remote_path("").is_err());
+        assert!(validate_remote_path("sdcard/DCIM").is_err());
+        assert!(validate_remote_path("./x").is_err());
+    }
+
+    #[test]
+    fn validate_remote_path_rejects_shell_metas() {
+        for bad in [
+            "/sdcard;rm -rf /",
+            "/sdcard && cat /etc/passwd",
+            "/sdcard`id`",
+            "/sdcard$(id)",
+            "/sdcard|cat",
+            "/sdcard\nrm",
+            "/sdcard'x",
+            "/sdcard\"x",
+            "/sdcard\\x",
+            "/sdcard*",
+            "/sdcard ",
+            "/sdcard\t",
+        ] {
+            assert!(validate_remote_path(bad).is_err(), "should reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn validate_remote_path_rejects_dotdot_and_trailing_slash() {
+        assert!(validate_remote_path("/sdcard/../etc").is_err());
+        assert!(validate_remote_path("/sdcard/").is_err());
+        assert!(validate_remote_path("/").is_ok()); // single-slash root allowed
+    }
+
+    #[test]
+    fn validate_remote_path_rejects_control_chars() {
+        assert!(validate_remote_path("/sdcard\x00").is_err());
+        assert!(validate_remote_path("/sdcard\x1b[31m").is_err());
     }
 }
