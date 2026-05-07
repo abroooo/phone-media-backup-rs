@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -80,6 +81,7 @@ pub struct General {
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Clean {
+    #[serde(deserialize_with = "deserialize_older_than_days")]
     pub older_than_days: u16,
 }
 
@@ -115,7 +117,6 @@ fn deserialize_remote_path<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
-    use serde::de::Error;
     let path = String::deserialize(deserializer)?;
     validate_remote_path(&path).map_err(D::Error::custom)?;
     Ok(path)
@@ -147,6 +148,26 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+fn validate_older_than_days(days: u16) -> Result<(), String> {
+    if days == 0 {
+        return Err(format!(
+            "source.clean.older_than_days must be positive, got {:?}",
+            days
+        ));
+    }
+    Ok(())
+}
+
+fn deserialize_older_than_days<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let days = u16::deserialize(deserializer)?;
+    validate_older_than_days(days).map_err(D::Error::custom)?;
+    Ok(days)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
