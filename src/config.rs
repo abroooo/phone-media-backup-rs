@@ -160,8 +160,7 @@ fn validate_remote_path(path: &str) -> Result<(), String> {
 fn validate_older_than_days(days: u16) -> Result<(), String> {
     if days == 0 {
         return Err(format!(
-            "source.clean.older_than_days must be positive, got {:?}",
-            days
+            "source.clean.older_than_days must be positive, got {days}",
         ));
     }
     Ok(())

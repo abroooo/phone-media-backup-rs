@@ -7,10 +7,156 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{debug, error, info};
 
+/// POSIX shell single-quote escape. Wraps `s` in `'...'` and replaces any
+/// embedded `'` with the standard `'\''` sequence, so the result is safe to
+/// interpolate into a `sh -c` command line — `sshfs` quirks aside, `libssh2`
+/// runs `exec` through the remote login shell, which is POSIX on Android.
+fn shell_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// Implementations that dispatch to a remote shell must escape any string
+/// argument they interpolate into a command. Callers may pass arbitrary
+/// strings; impls bear the escaping burden.
+pub trait Phone {
+    /// Get the current marker from the phone, which should be a date string in YYYY-MM-DD format.
+    /// May return an empty string when the marker is missing or empty — depends on remote cat behavior.
+    /// The marker is used to determine which files are new since the last backup.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    fn marker(&self) -> anyhow::Result<String>;
+
+    /// List files on the phone that are newer than the given date (in YYYY-MM-DD format). The date
+    /// is typically obtained from the marker. Returns a vector of file paths relative to the
+    /// phone's base path.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    fn list_new(&self, since: &str) -> anyhow::Result<Vec<String>>;
+
+    /// List all files on the phone, regardless of modification date. Returns a vector of file
+    /// paths relative to the phone's base path.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    fn list_all(&self) -> anyhow::Result<Vec<String>>;
+
+    /// Set the marker on the phone to the given date string (in YYYY-MM-DD format). This is
+    /// typically called after a successful backup to update the marker to the latest backup date.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    fn set_marker(&self, marker: &str) -> anyhow::Result<()>;
+
+    /// Clean up files on the phone that are older than the specified number of days. If `dry_run`
+    /// is true, the method should only list the files that would be deleted without actually
+    /// deleting them.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    /// - I/O errors
+    fn cleanup(&self, older_than_days: u16, dry_run: bool) -> anyhow::Result<()>;
+}
+
+pub struct RealPhone<'a> {
+    ssh: &'a Ssh,
+    path: &'a str,
+}
+impl<'a> RealPhone<'a> {
+    #[must_use]
+    pub fn new(ssh: &'a Ssh, path: &'a str) -> Self {
+        Self { ssh, path }
+    }
+}
+
+impl Phone for RealPhone<'_> {
+    fn marker(&self) -> anyhow::Result<String> {
+        self.ssh
+            .execute_command(&format!("cd {} && cat marker", shell_escape(self.path)))
+    }
+
+    fn list_new(&self, since: &str) -> anyhow::Result<Vec<String>> {
+        let out = self.ssh.execute_command(&format!(
+            "cd {} && find . -type f -newermt {}",
+            shell_escape(self.path),
+            shell_escape(since)
+        ))?;
+        Ok(out
+            .lines()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect())
+    }
+
+    fn list_all(&self) -> anyhow::Result<Vec<String>> {
+        let out = self
+            .ssh
+            .execute_command(&format!("cd {} && find . -type f", shell_escape(self.path)))?;
+        Ok(out
+            .lines()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect())
+    }
+
+    fn set_marker(&self, marker: &str) -> anyhow::Result<()> {
+        let cmd = format!(
+            "cd {} && printf '%s\n' {} > marker",
+            shell_escape(self.path),
+            shell_escape(marker)
+        );
+        self.ssh.execute_command(&cmd)?;
+        Ok(())
+    }
+
+    fn cleanup(&self, older_than_days: u16, dry_run: bool) -> anyhow::Result<()> {
+        let action = if dry_run {
+            "-print"
+        } else {
+            "-exec rm -f {{}} \\;"
+        };
+        let mode = if dry_run { "dry-run list" } else { "delete" };
+        info!(
+            "cleanup ({mode}): files older than {} days under {}",
+            &older_than_days, self.path
+        );
+        let cmd = format!(
+            "cd {} && find . -type f -mtime +{} {}",
+            shell_escape(self.path),
+            older_than_days,
+            action
+        );
+        self.ssh.execute_command(&cmd)?;
+        Ok(())
+    }
+}
+
 pub struct Mount {
     mountpoint: PathBuf,
 }
 impl Mount {
+    /// Mount the remote filesystem via sshfs at the configured mountpoint.     
+    ///
+    /// # Errors
+    ///
+    /// - issues executing sshfs (e.g., command not found,
+    ///   permission issues, mount failures)
     pub fn new(cfg: &config::MyConfig) -> anyhow::Result<Self> {
         let out = Command::new("sshfs")
             .arg("-p")
@@ -27,6 +173,8 @@ impl Mount {
     }
 }
 impl Drop for Mount {
+    /// Unmounts on drop. Errors are logged but never propagated, since `Drop`
+    /// can't return them.
     fn drop(&mut self) {
         let r = Command::new("umount").arg(&self.mountpoint).output();
         match r {
@@ -55,6 +203,13 @@ pub struct Ssh {
 }
 
 impl Ssh {
+    /// Create a new SSH session based on the provided configuration, performing host key
+    /// verification and authentication.
+    ///
+    /// # Errors
+    ///
+    /// - issues connecting to the SSH server, performing the handshake, verifying the
+    ///   host key, or authenticating (e.g., network errors, SSH errors, authentication failures)
     pub fn new(cfg: &config::MyConfig) -> anyhow::Result<Self> {
         // create ssh session
         let remote_user = &cfg.source.user;
@@ -174,6 +329,13 @@ impl Ssh {
         Ok(Ssh { sess })
     }
 
+    /// Execute a command on the remote SSH server and return its stdout as a String.
+    ///
+    /// # Errors
+    ///
+    /// - communication errors with phone (e.g., SSH errors)
+    ///
+    /// Note: no remote exit-status check - a failing remote command can return Ok("")
     pub fn execute_command(&self, cmd: &str) -> anyhow::Result<String> {
         let mut channel = self
             .sess
@@ -465,5 +627,33 @@ mod tests {
     #[test]
     fn parse_keygen_lookup_empty_stdout() {
         assert!(parse_keygen_lookup("").is_empty());
+    }
+
+    #[test]
+    fn plain() {
+        assert_eq!(shell_escape("foo"), "'foo'");
+    }
+
+    #[test]
+    fn empty() {
+        assert_eq!(shell_escape(""), "''");
+    }
+
+    #[test]
+    fn embedded_quote() {
+        assert_eq!(shell_escape("a'b"), "'a'\\''b'");
+    }
+
+    #[test]
+    fn injection_attempt() {
+        // The classic: `; rm -rf /`. After escape, the result is one literal
+        // argument — no command separator escapes the quotes.
+        let s = shell_escape("2024-01-01; rm -rf /");
+        assert_eq!(s, "'2024-01-01; rm -rf /'");
+    }
+
+    #[test]
+    fn newline_and_specials() {
+        assert_eq!(shell_escape("a\nb $c `d`"), "'a\nb $c `d`'");
     }
 }

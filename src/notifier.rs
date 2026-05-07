@@ -9,6 +9,7 @@ pub struct BackupNotifier {
 }
 
 impl BackupNotifier {
+    #[must_use]
     pub fn new(url: &str, token: &str) -> Self {
         BackupNotifier {
             client: Client::new(),
@@ -17,6 +18,13 @@ impl BackupNotifier {
         }
     }
 
+    /// Send a notification to the configured URL with the given state.
+    ///
+    /// # Errors
+    ///
+    /// - network errors
+    /// - invalid URL
+    /// - error status code from server (e.g., 4xx or 5xx)
     pub fn notify(&self, state: &str) -> Result<(), Error> {
         let payload = json!({ "state": state });
 

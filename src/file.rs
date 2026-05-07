@@ -41,6 +41,11 @@ fn partial_checksum(path: &Path) -> std::io::Result<u64> {
     Ok(xxh3_64(&buffer))
 }
 
+/// Compare two files using a partial checksum (first and last 64 kB).
+///
+/// # Errors
+///
+/// - I/O errors
 pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<bool> {
     if !destination.exists() {
         return Ok(false);
@@ -54,6 +59,15 @@ pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<boo
     Ok(false)
 }
 
+/// Compare two files byte-by-byte to verify they are identical.
+///
+/// # Errors
+///
+/// - I/O errors
+///
+/// Note: This is more expensive than `compare_partial` and should only be used after a checksum
+/// match to confirm identity.
+/// The chunk size is defined by `STRICT_BUFFER_SIZE` (64 kB).
 pub fn compare_strict(source: &Path, destination: &Path) -> std::io::Result<bool> {
     if !destination.exists() {
         return Ok(false);
@@ -162,6 +176,11 @@ pub fn resolve_destination(
 
 /// Verify that all given files have been backed up by checking checksums.
 /// Returns a list of files that are missing or don't match.
+///
+/// # Panics
+/// - if the embedded progress-bar template fails to parse — unreachable in
+///   practice since the template is a compile-time constant.
+///
 pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> {
     let base_dir = &cfg.general.mountpoint;
     let mut missing: Vec<String> = Vec::new();
@@ -306,6 +325,16 @@ fn copy_if_needed(source: &Path, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Save the given files to the destination, returning the latest datetime among them (for marker
+/// update).
+///
+/// # Errors
+///
+/// - I/O errors
+///
+/// # Panics
+/// - if the embedded progress-bar template fails to parse — unreachable in
+///   practice since the template is a compile-time constant.
 pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
     let mut skipped_files: Vec<String> = Vec::new();
     let base_dir = &cfg.general.mountpoint;

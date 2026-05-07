@@ -8,6 +8,10 @@ edition = "2021"
 name = "p2r"
 path = "src/main.rs"
 
+[lib]
+name = "phone_media_backup_rs"
+path = "src/lib.rs"
+
 [dependencies]
 ssh2 = "0.9.5"
 chrono = "0.4.31"
