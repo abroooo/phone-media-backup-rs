@@ -277,46 +277,33 @@ fn save_one(
     std::fs::create_dir_all(dest_dir)
         .with_context(|| format!("create_dir_all {}", dest_dir.display()))?;
 
-    if compare_partial(&path_name, &resolved.dest_path)
-        .with_context(|| format!("compare_partial {}", path_name.display()))?
-    {
-        info!(
-            "file already exists, skipping: {}",
-            resolved.dest_path.display()
-        );
-    } else {
-        info!(
-            "copying {} to {}",
-            path_name.display(),
-            resolved.dest_path.display()
-        );
-        std::fs::copy(&path_name, &resolved.dest_path)
-            .with_context(|| format!("copy {}", path_name.display()))?;
-        if !compare_strict(&path_name, &resolved.dest_path)
-            .with_context(|| format!("compare_strict {}", path_name.display()))?
-        {
-            if let Err(e) = std::fs::remove_file(&resolved.dest_path) {
-                error!(
-                    "Failed to remove corrupted file {}: {}",
-                    resolved.dest_path.display(),
-                    e
-                );
-            }
-            anyhow::bail!(
-                "copied file does not match source: {}",
-                resolved.dest_path.display()
-            );
-        }
-        let metadata = std::fs::metadata(&path_name)
-            .with_context(|| format!("metadata {}", path_name.display()))?;
-        helpers::set_file_times(&resolved.dest_path, &metadata)?;
-        info!(
-            "move {} to {}",
-            path_name.display(),
-            resolved.dest_path.display()
-        );
-    }
+    copy_if_needed(&path_name, &resolved.dest_path)?;
     Ok(FileOutcome::Processed(resolved.datetime))
+}
+
+fn copy_if_needed(source: &Path, dest: &Path) -> anyhow::Result<()> {
+    if compare_partial(source, dest)
+        .with_context(|| format!("compare_partial {}", source.display()))?
+    {
+        info!("file already exists, skipping: {}", dest.display());
+        return Ok(());
+    }
+
+    info!("copying {} to {}", source.display(), dest.display());
+    std::fs::copy(source, dest).with_context(|| format!("copy {}", source.display()))?;
+    if !compare_strict(source, dest)
+        .with_context(|| format!("compare_strict {}", source.display()))?
+    {
+        if let Err(e) = std::fs::remove_file(dest) {
+            error!("Failed to remove corrupted file {}: {}", dest.display(), e);
+        }
+        anyhow::bail!("copied file does not match source: {}", dest.display());
+    }
+    let metadata =
+        std::fs::metadata(source).with_context(|| format!("metadata {}", source.display()))?;
+    helpers::set_file_times(dest, &metadata)?;
+    info!("move {} to {}", source.display(), dest.display());
+    Ok(())
 }
 
 pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
