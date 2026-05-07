@@ -1,0 +1,17 @@
+general:
+    mountpoint: /home/user/sshmount/
+source:
+    ip: 192.168.1.3
+    user: user
+    port: 2222
+    known_hosts: ~/.ssh/known_hosts
+    cert: ~/.ssh/id_rsa
+    path: /sdcard/DCIM/Camera
+    clean:
+        older_than_days: 7
+destination:
+    path: /home/user/tmppixel
+# Optional: omit this section to disable backup-status notifications.
+notifier:
+    url: https://homeassistant.example/api/webhook/backup-status
+    token: your-bearer-token-here

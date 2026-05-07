@@ -474,6 +474,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap();
@@ -501,6 +502,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let _ = save_files(&cfg, vec!["PXL_20240315_something.mp4"]);
@@ -522,6 +524,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let _ = save_files(&cfg, vec!["notes.txt"]);
@@ -549,6 +552,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"]).unwrap();
@@ -575,6 +579,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let result = save_files(&cfg, vec!["does_not_exist.jpg", "good.jpg"]).unwrap();
@@ -606,6 +611,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let result =
@@ -720,6 +726,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
@@ -742,6 +749,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
@@ -768,6 +776,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
@@ -789,6 +798,7 @@ mod tests {
             destination: config::Destination {
                 path: dst_dir.path().into(),
             },
+            notifier: None,
         };
 
         let missing = verify_files(&cfg, &["notes.txt"]);

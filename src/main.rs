@@ -6,50 +6,24 @@ use clap::Parser;
 mod config;
 mod file;
 mod helpers;
+mod notifier;
 mod ssh;
 
-use reqwest::blocking::Client;
-use reqwest::Error;
-use serde_json::json;
 use tracing::{debug, info};
 use tracing_indicatif::IndicatifLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-struct BackupNotifier {
-    client: Client,
-    url: String,
-    token: String,
-}
-
-impl BackupNotifier {
-    fn new(url: &str, token: &str) -> Self {
-        BackupNotifier {
-            client: Client::new(),
-            url: url.to_string(),
-            token: token.to_string(),
-        }
-    }
-
-    fn notify(&self, state: &str) -> Result<(), Error> {
-        let payload = json!({ "state": state });
-
-        self.client
-            .post(&self.url)
-            .bearer_auth(&self.token)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()?
-            .error_for_status()?;
-        Ok(())
-    }
-}
-
 fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
-    // let notifier = BackupNotifier::new("__CLIENT__", "__TOKEN__");
+    let notifier = cfg
+        .notifier
+        .as_ref()
+        .map(|n| notifier::BackupNotifier::new(&n.url, &n.token));
 
-    // notifier.notify("in progress")?;
+    if let Some(n) = &notifier {
+        n.notify("in progress")?;
+    }
 
     let cmd = format!("cd {} && cat marker", &cfg.source.path);
     let marker = sess.execute_command(&cmd)?;
@@ -83,7 +57,9 @@ fn run_save(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
     sess.execute_command(&cmd)?;
     info!("marker set!");
 
-    notifier.notify("success")?;
+    if let Some(n) = &notifier {
+        n.notify("success")?;
+    }
     Ok(())
 }
 

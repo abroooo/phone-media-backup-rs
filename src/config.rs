@@ -47,6 +47,14 @@ pub struct MyConfig {
     pub general: General,
     pub source: Source,
     pub destination: Destination,
+    #[serde(default)]
+    pub notifier: Option<Notifier>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Notifier {
+    pub url: String,
+    pub token: String,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
