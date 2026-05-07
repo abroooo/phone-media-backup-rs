@@ -59,6 +59,9 @@ fn run_backup(cfg: &config::MyConfig, sess: &ssh::Ssh) -> anyhow::Result<()> {
     let cmd = "cd ".to_owned() + &cfg.source.path + " && cat marker";
     let marker = sess.execute_command(&cmd)?;
 
+    if !is_valid_date_format(&marker) {
+        anyhow::bail!("Marker file has invalid date format. Modify or delete the marker file on the phone to fix this issue. Expected format: YYYY-MM-DD");
+    }
     let list_of_files = if marker.is_empty() {
         info!("Marker file is empty, setting it to 1970-01-01");
         let cmd = "cd ".to_owned() + &cfg.source.path + " && find . -type f -newermt 1970-01-01";
@@ -149,4 +152,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+fn is_valid_date_format(date_str: &str) -> bool {
+    // Compile the regex pattern
+    let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}\s*$").unwrap();
+
+    // Check if the string matches the pattern
+    re.is_match(date_str)
 }
