@@ -608,11 +608,8 @@ mod tests {
             },
         };
 
-        let result = save_files(
-            &cfg,
-            vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"],
-        )
-        .unwrap();
+        let result =
+            save_files(&cfg, vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"]).unwrap();
 
         assert!(dst_dir.path().join("2022/01/PXL_20220101_x.mp4").exists());
         assert!(dst_dir.path().join("2023/07/later.jpg").exists());
