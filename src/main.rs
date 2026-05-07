@@ -140,8 +140,8 @@ fn main() -> anyhow::Result<()> {
     debug!("{:?}", &cfg);
     debug!("{}", cfg.source.ip);
 
-    let _mount = ssh::Mount::new(&cfg)?;
     let sess = ssh::Ssh::new(&cfg)?;
+    let _mount = ssh::Mount::new(&cfg)?;
 
     match args.command {
         None | Some(config::Commands::Backup) => run_backup(&cfg, &sess)?,
