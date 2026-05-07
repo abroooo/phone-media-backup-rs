@@ -164,7 +164,9 @@ impl Mount {
             // .arg(format!("{}:{}", cfg.source.ip, &cfg.source.path))
             .arg(format!(
                 "{}@{}:{}",
-                cfg.source.user, cfg.source.ip, &cfg.source.path
+                cfg.source.user,
+                cfg.source.ip,
+                cfg.source.path.display()
             ))
             .arg(&cfg.general.mountpoint)
             .output()?;

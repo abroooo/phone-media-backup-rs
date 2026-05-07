@@ -22,7 +22,13 @@ fn main() -> anyhow::Result<()> {
 
     let sess = Ssh::new(&cfg)?;
     let _mount = Mount::new(&cfg)?;
-    let phone = RealPhone::new(&sess, &cfg.source.path);
+    let phone = RealPhone::new(
+        &sess,
+        cfg.source
+            .path
+            .to_str()
+            .expect("source.path validated ASCII at config load"),
+    );
 
     let cmd = args
         .command

@@ -73,7 +73,7 @@ pub struct Source {
     )]
     pub cert: PathBuf,
     #[serde(deserialize_with = "deserialize_remote_path")]
-    pub path: String,
+    pub path: PathBuf,
     pub clean: Clean,
 }
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -121,13 +121,13 @@ where
     Ok(expand_tilde(&path))
 }
 
-fn deserialize_remote_path<'de, D>(deserializer: D) -> Result<String, D::Error>
+fn deserialize_remote_path<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
     D: Deserializer<'de>,
 {
     let path = String::deserialize(deserializer)?;
     validate_remote_path(&path).map_err(D::Error::custom)?;
-    Ok(path)
+    Ok(PathBuf::from(path))
 }
 
 fn validate_remote_path(path: &str) -> Result<(), String> {

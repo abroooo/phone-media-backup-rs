@@ -1,7 +1,7 @@
 use phone_media_backup_rs::{config, file, run_backup, run_clean, ssh::Phone};
 use std::cell::RefCell;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 #[derive(Default)]
@@ -31,10 +31,10 @@ impl Phone for FakePhone {
     }
 }
 
-fn make_cfg(mount: &PathBuf, dest: &PathBuf) -> config::MyConfig {
+fn make_cfg(mount: &Path, dest: &Path) -> config::MyConfig {
     config::MyConfig {
         general: config::General {
-            mountpoint: mount.clone(),
+            mountpoint: mount.to_path_buf(),
         },
         source: config::Source {
             user: String::new(),
@@ -47,7 +47,9 @@ fn make_cfg(mount: &PathBuf, dest: &PathBuf) -> config::MyConfig {
                 older_than_days: 30,
             },
         },
-        destination: config::Destination { path: dest.clone() },
+        destination: config::Destination {
+            path: dest.to_path_buf(),
+        },
         notifier: None,
     }
 }
@@ -60,7 +62,7 @@ fn backup_copies_and_advances_marker() {
     let src = mount.path().join("PXL_20240115_120000000.mp4");
     fs::write(&src, b"fake video bytes").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01".into()),
         files: vec!["./PXL_20240115_120000000.mp4".into()],
@@ -95,7 +97,7 @@ fn backup_rejects_path_outside_mount() {
     )
     .unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01".into()),
         files: vec!["./escape.mp4".into()],
@@ -124,7 +126,7 @@ fn marker_advances_to_latest_minus_one() {
         fs::write(mount.path().join(name), b"video").unwrap();
     }
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01".into()),
         files: vec![
@@ -138,9 +140,18 @@ fn marker_advances_to_latest_minus_one() {
     run_backup(&cfg, &phone).unwrap();
 
     assert_eq!(*phone.marker.borrow(), "2024-03-14");
-    assert!(dest.path().join("2023/12/PXL_20231201_120000000.mp4").exists());
-    assert!(dest.path().join("2024/03/PXL_20240315_120000000.mp4").exists());
-    assert!(dest.path().join("2024/01/PXL_20240120_120000000.mp4").exists());
+    assert!(dest
+        .path()
+        .join("2023/12/PXL_20231201_120000000.mp4")
+        .exists());
+    assert!(dest
+        .path()
+        .join("2024/03/PXL_20240315_120000000.mp4")
+        .exists());
+    assert!(dest
+        .path()
+        .join("2024/01/PXL_20240120_120000000.mp4")
+        .exists());
 }
 
 #[test]
@@ -149,30 +160,25 @@ fn unsupported_files_skipped() {
     let dest = TempDir::new().unwrap();
 
     fs::write(mount.path().join("notes.txt"), b"hello").unwrap();
-    fs::write(
-        mount.path().join("PXL_20240115_120000000.mp4"),
-        b"video",
-    )
-    .unwrap();
+    fs::write(mount.path().join("PXL_20240115_120000000.mp4"), b"video").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01".into()),
-        files: vec![
-            "./notes.txt".into(),
-            "./PXL_20240115_120000000.mp4".into(),
-        ],
+        files: vec!["./notes.txt".into(), "./PXL_20240115_120000000.mp4".into()],
         ..Default::default()
     };
 
     run_backup(&cfg, &phone).unwrap();
 
     assert_eq!(*phone.marker.borrow(), "2024-01-14");
-    assert!(dest.path().join("2024/01/PXL_20240115_120000000.mp4").exists());
+    assert!(dest
+        .path()
+        .join("2024/01/PXL_20240115_120000000.mp4")
+        .exists());
     // .txt should not appear anywhere under dest
-    let txt_present = walkdir(dest.path()).any(|p| {
-        p.extension().and_then(|s| s.to_str()) == Some("txt")
-    });
+    let txt_present =
+        walkdir(dest.path()).any(|p| p.extension().and_then(|s| s.to_str()) == Some("txt"));
     assert!(!txt_present, "unsupported .txt file leaked into dest tree");
 }
 
@@ -180,7 +186,7 @@ fn unsupported_files_skipped() {
 fn invalid_marker_format_errors() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("garbage".into()),
         files: vec![],
@@ -198,13 +204,9 @@ fn invalid_marker_format_errors() {
 fn empty_marker_treated_as_epoch() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    fs::write(
-        mount.path().join("PXL_20240115_120000000.mp4"),
-        b"video",
-    )
-    .unwrap();
+    fs::write(mount.path().join("PXL_20240115_120000000.mp4"), b"video").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new(String::new()),
         files: vec!["./PXL_20240115_120000000.mp4".into()],
@@ -222,13 +224,9 @@ fn empty_marker_treated_as_epoch() {
 fn trailing_newline_in_marker_tolerated() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    fs::write(
-        mount.path().join("PXL_20240115_120000000.mp4"),
-        b"video",
-    )
-    .unwrap();
+    fs::write(mount.path().join("PXL_20240115_120000000.mp4"), b"video").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01\n".into()),
         files: vec!["./PXL_20240115_120000000.mp4".into()],
@@ -247,7 +245,7 @@ fn trailing_newline_in_marker_tolerated() {
 fn whitespace_only_marker_bails() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("\n".into()),
         files: vec![],
@@ -265,13 +263,9 @@ fn whitespace_only_marker_bails() {
 fn verify_finds_no_missing_after_backup() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    fs::write(
-        mount.path().join("PXL_20240115_120000000.mp4"),
-        b"video",
-    )
-    .unwrap();
+    fs::write(mount.path().join("PXL_20240115_120000000.mp4"), b"video").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("1970-01-01".into()),
         files: vec!["./PXL_20240115_120000000.mp4".into()],
@@ -290,13 +284,9 @@ fn verify_finds_no_missing_after_backup() {
 fn verify_reports_all_missing_when_dest_empty() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    fs::write(
-        mount.path().join("PXL_20240115_120000000.mp4"),
-        b"video",
-    )
-    .unwrap();
+    fs::write(mount.path().join("PXL_20240115_120000000.mp4"), b"video").unwrap();
 
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         files: vec!["./PXL_20240115_120000000.mp4".into()],
         ..Default::default()
@@ -312,7 +302,7 @@ fn verify_reports_all_missing_when_dest_empty() {
 fn cleanup_forwards_days_and_dry_run() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    let mut cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let mut cfg = make_cfg(mount.path(), dest.path());
     cfg.source.clean.older_than_days = 42;
 
     let phone = FakePhone::default();
@@ -320,17 +310,14 @@ fn cleanup_forwards_days_and_dry_run() {
     run_clean(&cfg, &phone, true).unwrap();
     run_clean(&cfg, &phone, false).unwrap();
 
-    assert_eq!(
-        *phone.cleanup_calls.borrow(),
-        vec![(42, true), (42, false)]
-    );
+    assert_eq!(*phone.cleanup_calls.borrow(), vec![(42, true), (42, false)]);
 }
 
 #[test]
 fn empty_file_list_does_not_clobber_marker() {
     let mount = TempDir::new().unwrap();
     let dest = TempDir::new().unwrap();
-    let cfg = make_cfg(&mount.path().to_path_buf(), &dest.path().to_path_buf());
+    let cfg = make_cfg(mount.path(), dest.path());
     let phone = FakePhone {
         marker: RefCell::new("2024-06-01".into()),
         files: vec![],
