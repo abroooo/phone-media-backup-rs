@@ -335,13 +335,16 @@ fn copy_if_needed(source: &Path, dest: &Path) -> anyhow::Result<()> {
 /// # Panics
 /// - if the embedded progress-bar template fails to parse — unreachable in
 ///   practice since the template is a compile-time constant.
-pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Result<NaiveDateTime> {
+pub fn save_files(
+    cfg: &config::MyConfig,
+    file_names: Vec<&str>,
+) -> anyhow::Result<Option<NaiveDateTime>> {
     let mut skipped_files: Vec<String> = Vec::new();
     let base_dir = &cfg.general.mountpoint;
     let canonical_root = PathBuf::from(base_dir)
         .canonicalize()
         .with_context(|| format!("canonicalize root {}", base_dir.display()))?;
-    let mut latest_date: NaiveDateTime = NaiveDateTime::default();
+    let mut latest_date: Option<NaiveDateTime> = None;
     let mut totalsize: u64 = 0;
     let span = info_span!("save_files");
     span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap());
@@ -351,8 +354,8 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
         span.pb_inc(1);
         match save_one(cfg, base_name, &canonical_root, &mut totalsize) {
             Ok(FileOutcome::Processed(Some(dt))) => {
-                if dt > latest_date {
-                    latest_date = dt;
+                if latest_date.is_none_or(|cur| dt > cur) {
+                    latest_date = Some(dt);
                 }
             }
             Ok(FileOutcome::Processed(None)) => {}
@@ -370,7 +373,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     for x in &skipped_files {
         info!("skipped file: {x}");
     }
-    Ok(latest_date - Duration::days(1))
+    Ok(latest_date.map(|d| d - Duration::days(1)))
 }
 
 #[cfg(test)]
@@ -493,7 +496,7 @@ mod tests {
             notifier: None,
         };
 
-        let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap();
+        let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap().unwrap();
         let expected = dst_dir.path().join("2023/07/test_photo.jpg");
         assert!(expected.exists(), "JPEG should be saved at {expected:?}");
         // `make_test_jpeg` sets the EXIF DateTime to "2023:07:15 10:30:00", so we expect the
@@ -571,9 +574,9 @@ mod tests {
             notifier: None,
         };
 
-        let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"]).unwrap();
-        // save_files only updates latest_date for jpg/dng (via exif), not mp4
-        // so for mp4-only input the result stays at the default
+        let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"])
+            .unwrap()
+            .unwrap();
         assert_eq!(
             result,
             NaiveDateTime::parse_from_str("2024-05-31 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
@@ -598,7 +601,9 @@ mod tests {
             notifier: None,
         };
 
-        let result = save_files(&cfg, vec!["does_not_exist.jpg", "good.jpg"]).unwrap();
+        let result = save_files(&cfg, vec!["does_not_exist.jpg", "good.jpg"])
+            .unwrap()
+            .unwrap();
         let expected = dst_dir.path().join("2023/07/good.jpg");
         assert!(
             expected.exists(),
@@ -630,8 +635,9 @@ mod tests {
             notifier: None,
         };
 
-        let result =
-            save_files(&cfg, vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"]).unwrap();
+        let result = save_files(&cfg, vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"])
+            .unwrap()
+            .unwrap();
 
         assert!(dst_dir.path().join("2022/01/PXL_20220101_x.mp4").exists());
         assert!(dst_dir.path().join("2023/07/later.jpg").exists());
