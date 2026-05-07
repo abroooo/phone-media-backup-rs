@@ -169,9 +169,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
     let mut ok: usize = 0;
     let mut skipped: usize = 0;
     let span = info_span!("verify");
-    span.pb_set_style(
-        &ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap(),
-    );
+    span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap());
     span.pb_set_length(file_names.len() as u64);
     let _enter = span.enter();
 
@@ -242,9 +240,7 @@ pub fn save_files(cfg: &config::MyConfig, file_names: Vec<&str>) -> anyhow::Resu
     let mut latest_date: NaiveDateTime = NaiveDateTime::default();
     let mut totalsize: u64 = 0;
     let span = info_span!("save_files");
-    span.pb_set_style(
-        &ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap(),
-    );
+    span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap());
     span.pb_set_length(file_names.len() as u64);
     let _enter = span.enter();
     for base_name in file_names {
