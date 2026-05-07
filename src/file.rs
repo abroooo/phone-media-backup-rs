@@ -434,6 +434,23 @@ mod tests {
     }
 
     #[test]
+    fn test_checksum_65537_bytes_differ_at_tail_byte() {
+        // Regression: file just over PARTIAL_HASH_SIZE (64 KiB). The tail read
+        // must include the final byte at offset 65536, not stop at 65535.
+        let dir = TempDir::new().unwrap();
+        let mut data = vec![0u8; 65537];
+        for (i, byte) in data.iter_mut().enumerate() {
+            *byte = u8::try_from(i % 251).unwrap_or(0);
+        }
+        let src = create_file(&dir, "a.bin", &data);
+
+        let mut data2 = data.clone();
+        data2[65536] ^= 0xFF;
+        let dst = create_file(&dir, "b.bin", &data2);
+        assert!(!compare_partial(&src, &dst).unwrap());
+    }
+
+    #[test]
     fn test_checksum_large_file_differ_at_end() {
         let dir = TempDir::new().unwrap();
         let mut data = vec![0u8; 200 * 1024];
@@ -485,16 +502,7 @@ mod tests {
         // Write the JPEG into mount_dir
         let _src = create_file_at(mount_dir.path(), "test_photo.jpg", &jpeg);
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap().unwrap();
         let expected = dst_dir.path().join("2023/07/test_photo.jpg");
@@ -513,16 +521,7 @@ mod tests {
         let dst_dir = TempDir::new().unwrap();
         let _src = create_file_at(mount_dir.path(), "PXL_20240315_something.mp4", b"fake mp4");
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let _ = save_files(&cfg, vec!["PXL_20240315_something.mp4"]);
         let expected = dst_dir.path().join("2024/03/PXL_20240315_something.mp4");
@@ -535,16 +534,7 @@ mod tests {
         let dst_dir = TempDir::new().unwrap();
         let _src = create_file_at(mount_dir.path(), "notes.txt", b"some text");
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let _ = save_files(&cfg, vec!["notes.txt"]);
         // Nothing should be created in dst_dir (only the dir itself)
@@ -563,16 +553,7 @@ mod tests {
         let _f1 = create_file_at(mount_dir.path(), "PXL_20230101_a.mp4", b"mp4 data");
         let _f2 = create_file_at(mount_dir.path(), "PXL_20240601_b.mp4", b"mp4 data");
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"])
             .unwrap()
@@ -590,16 +571,7 @@ mod tests {
         let dst_dir = TempDir::new().unwrap();
         let _src = create_file_at(mount_dir.path(), "good.jpg", &jpeg);
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let result = save_files(&cfg, vec!["does_not_exist.jpg", "good.jpg"])
             .unwrap()
@@ -624,16 +596,7 @@ mod tests {
         let _early = create_file_at(mount_dir.path(), "PXL_20220101_x.mp4", b"mp4 data");
         let _late = create_file_at(mount_dir.path(), "later.jpg", &jpeg);
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let result = save_files(&cfg, vec!["PXL_20220101_x.mp4", "missing.jpg", "later.jpg"])
             .unwrap()
@@ -646,6 +609,42 @@ mod tests {
             result,
             NaiveDateTime::parse_from_str("2023-07-14 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
         );
+    }
+
+    #[test]
+    fn test_save_files_overwrites_corrupt_destination() {
+        // Pre-existing destination with content unrelated to source must not be
+        // silently kept — copy_if_needed must overwrite and strict-verify.
+        let jpeg = make_test_jpeg();
+        let mount_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let _src = create_file_at(mount_dir.path(), "test_photo.jpg", &jpeg);
+        let dst_path =
+            create_file_at(dst_dir.path(), "2023/07/test_photo.jpg", b"corrupted bytes");
+
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
+
+        save_files(&cfg, vec!["test_photo.jpg"])
+            .unwrap()
+            .unwrap();
+        let actual = std::fs::read(&dst_path).unwrap();
+        assert_eq!(
+            actual, jpeg,
+            "corrupt destination must be overwritten with source bytes"
+        );
+    }
+
+    fn test_cfg(mount: &Path, dst: &Path) -> config::MyConfig {
+        config::MyConfig {
+            general: config::General {
+                mountpoint: mount.to_path_buf(),
+            },
+            source: Source::default(),
+            destination: config::Destination {
+                path: dst.into(),
+            },
+            notifier: None,
+        }
     }
 
     fn create_file_at(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
@@ -740,16 +739,7 @@ mod tests {
         // Pre-create identical backup
         create_file_at(dst_dir.path(), "2024/03/PXL_20240315_a.mp4", b"mp4 data");
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert!(missing.is_empty());
@@ -763,16 +753,7 @@ mod tests {
         let _src = create_file_at(mount_dir.path(), "PXL_20240315_a.mp4", b"mp4 data");
         // No backup exists
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
@@ -790,16 +771,7 @@ mod tests {
             b"corrupted data",
         );
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
         assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
@@ -812,16 +784,7 @@ mod tests {
 
         let _src = create_file_at(mount_dir.path(), "notes.txt", b"text");
 
-        let cfg = config::MyConfig {
-            general: config::General {
-                mountpoint: mount_dir.path().to_path_buf(),
-            },
-            source: Source::default(),
-            destination: config::Destination {
-                path: dst_dir.path().into(),
-            },
-            notifier: None,
-        };
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
         let missing = verify_files(&cfg, &["notes.txt"]);
         assert!(missing.is_empty());
