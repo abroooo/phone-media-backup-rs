@@ -161,7 +161,11 @@ impl Mount {
         let out = Command::new("sshfs")
             .arg("-p")
             .arg(cfg.source.port.to_string())
-            .arg(format!("{}:{}", cfg.source.ip, &cfg.source.path))
+            // .arg(format!("{}:{}", cfg.source.ip, &cfg.source.path))
+            .arg(format!(
+                "{}@{}:{}",
+                cfg.source.user, cfg.source.ip, &cfg.source.path
+            ))
             .arg(&cfg.general.mountpoint)
             .output()?;
         if !out.status.success() {
