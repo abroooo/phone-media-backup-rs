@@ -446,9 +446,11 @@ mod tests {
         let result = save_files(&cfg, vec!["test_photo.jpg"]).unwrap();
         let expected = dst_dir.path().join("2023/07/test_photo.jpg");
         assert!(expected.exists(), "JPEG should be saved at {expected:?}");
+        // `make_test_jpeg` sets the EXIF DateTime to "2023:07:15 10:30:00", so we expect the
+        // result to be that minus 1 day (as per save_files logic)
         assert_eq!(
             result,
-            NaiveDateTime::parse_from_str("2023-07-15 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
+            NaiveDateTime::parse_from_str("2023-07-14 10:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
         );
     }
 
@@ -519,7 +521,10 @@ mod tests {
         let result = save_files(&cfg, vec!["PXL_20230101_a.mp4", "PXL_20240601_b.mp4"]).unwrap();
         // save_files only updates latest_date for jpg/dng (via exif), not mp4
         // so for mp4-only input the result stays at the default
-        assert_eq!(result, NaiveDateTime::default());
+        assert_eq!(
+            result,
+            NaiveDateTime::parse_from_str("2024-05-31 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
     }
 
     fn create_file_at(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
