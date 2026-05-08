@@ -178,6 +178,49 @@ pub fn resolve_destination(
     }
 }
 
+/// A file that could not be verified, with the underlying cause.
+#[derive(Debug)]
+pub struct VerifyError {
+    pub file: String,
+    pub kind: VerifyErrorKind,
+}
+
+/// Why a file could not be verified.
+///
+/// `PathEscape` is split out from the I/O variants because it is a security
+/// signal  and callers may want to react differently — alert vs. retry.
+#[derive(Debug)]
+pub enum VerifyErrorKind {
+    PathEscape,
+    Access(std::io::Error),
+    Canonicalize(std::io::Error),
+    Compare(std::io::Error),
+}
+
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            VerifyErrorKind::PathEscape => write!(f, "{}: path escape attempt", self.file),
+            VerifyErrorKind::Access(e) => write!(f, "{}: access failed: {e}", self.file),
+            VerifyErrorKind::Canonicalize(e) => {
+                write!(f, "{}: canonicalize failed: {e}", self.file)
+            }
+            VerifyErrorKind::Compare(e) => write!(f, "{}: compare failed: {e}", self.file),
+        }
+    }
+}
+
+impl std::error::Error for VerifyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            VerifyErrorKind::PathEscape => None,
+            VerifyErrorKind::Access(e)
+            | VerifyErrorKind::Canonicalize(e)
+            | VerifyErrorKind::Compare(e) => Some(e),
+        }
+    }
+}
+
 /// Outcome of a `verify_files` run, partitioned by failure kind so callers can
 /// surface each bucket separately.
 #[derive(Debug, Default)]
@@ -186,8 +229,8 @@ pub struct VerifyReport {
     pub missing: Vec<String>,
     /// sources files with existing backup but different checksum
     pub mismatched: Vec<String>,
-    /// source files which couldnt be checked
-    pub errors: Vec<String>,
+    /// source files which couldnt be checked, with the cause
+    pub errors: Vec<VerifyError>,
     /// number of files which are in the backup and checksum with source matches
     pub ok: usize,
     /// number of files skipped because the extension/date could not be resolved.
@@ -226,7 +269,10 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> VerifyReport
             Ok(p) => p,
             Err(e) => {
                 error!("ERROR accessing {base_name}: {e}");
-                report.errors.push((*base_name).to_string());
+                report.errors.push(VerifyError {
+                    file: (*base_name).to_string(),
+                    kind: VerifyErrorKind::Access(e),
+                });
                 continue;
             }
         };
@@ -234,13 +280,19 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> VerifyReport
             Ok(p) => p,
             Err(e) => {
                 error!("canonicalize failed: {} {e}", base_dir.display());
-                report.errors.push((*base_name).to_string());
+                report.errors.push(VerifyError {
+                    file: (*base_name).to_string(),
+                    kind: VerifyErrorKind::Canonicalize(e),
+                });
                 continue;
             }
         };
         if !path_name.starts_with(&canonical_root) {
             error!("path escape attempt: {}", path_name.display());
-            report.errors.push(path_name.to_string_lossy().into_owned());
+            report.errors.push(VerifyError {
+                file: path_name.to_string_lossy().into_owned(),
+                kind: VerifyErrorKind::PathEscape,
+            });
             continue;
         }
 
@@ -272,7 +324,10 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> VerifyReport
             }
             Err(e) => {
                 error!("ERROR checking {}: {}", path_name.display(), e);
-                report.errors.push((*base_name).to_string());
+                report.errors.push(VerifyError {
+                    file: (*base_name).to_string(),
+                    kind: VerifyErrorKind::Compare(e),
+                });
             }
         }
     }
@@ -832,5 +887,98 @@ mod tests {
         assert!(report.is_clean());
         assert_eq!(report.skipped, 1);
         assert_eq!(report.ok, 0);
+    }
+
+    // --- VerifyError ---
+
+    #[test]
+    fn test_verify_files_access_error_when_source_missing() {
+        let mount_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
+
+        let report = verify_files(&cfg, &["nonexistent.mp4"]);
+        assert_eq!(report.errors.len(), 1);
+        let err = &report.errors[0];
+        assert_eq!(err.file, "nonexistent.mp4");
+        assert!(
+            matches!(err.kind, VerifyErrorKind::Access(_)),
+            "expected Access, got {:?}",
+            err.kind
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_verify_files_path_escape_via_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let mount_dir = TempDir::new().unwrap();
+        let outside_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        // Real file lives outside the mount; symlink inside the mount points to it.
+        let target = create_file_at(outside_dir.path(), "PXL_20240315_a.mp4", b"data");
+        symlink(&target, mount_dir.path().join("PXL_20240315_a.mp4")).unwrap();
+
+        let cfg = test_cfg(mount_dir.path(), dst_dir.path());
+
+        let report = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
+        assert_eq!(report.errors.len(), 1);
+        assert!(
+            matches!(report.errors[0].kind, VerifyErrorKind::PathEscape),
+            "expected PathEscape, got {:?}",
+            report.errors[0].kind
+        );
+        assert!(report.missing.is_empty());
+        assert!(report.mismatched.is_empty());
+        assert_eq!(report.ok, 0);
+    }
+
+    #[test]
+    fn test_verify_error_display() {
+        let path_escape = VerifyError {
+            file: "evil.mp4".into(),
+            kind: VerifyErrorKind::PathEscape,
+        };
+        assert_eq!(path_escape.to_string(), "evil.mp4: path escape attempt");
+
+        let access = VerifyError {
+            file: "gone.mp4".into(),
+            kind: VerifyErrorKind::Access(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        };
+        assert!(access.to_string().starts_with("gone.mp4: access failed: "));
+
+        let canon = VerifyError {
+            file: "x.mp4".into(),
+            kind: VerifyErrorKind::Canonicalize(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied,
+            )),
+        };
+        assert!(canon.to_string().starts_with("x.mp4: canonicalize failed: "));
+
+        let cmp = VerifyError {
+            file: "y.mp4".into(),
+            kind: VerifyErrorKind::Compare(std::io::Error::from(std::io::ErrorKind::Other)),
+        };
+        assert!(cmp.to_string().starts_with("y.mp4: compare failed: "));
+    }
+
+    #[test]
+    fn test_verify_error_source() {
+        use std::error::Error as _;
+
+        let path_escape = VerifyError {
+            file: "x".into(),
+            kind: VerifyErrorKind::PathEscape,
+        };
+        assert!(path_escape.source().is_none());
+
+        let access = VerifyError {
+            file: "x".into(),
+            kind: VerifyErrorKind::Access(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        };
+        assert!(access.source().is_some());
     }
 }
