@@ -124,10 +124,10 @@ docker run --rm --device /dev/fuse --cap-add SYS_ADMIN \
     -v $(pwd)/config:/config p2r --config /config/myphone
 ```
 
-Logs are controlled with `RUST_LOG` (default `debug`):
+Logs are controlled with `RUST_LOG` (default `info`):
 
 ```bash
-RUST_LOG=info p2r --config config/myphone.yaml
+RUST_LOG=debug p2r --config config/myphone.yaml
 ```
 
 ## Security model

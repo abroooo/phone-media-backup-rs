@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
     let indicatif_layer = IndicatifLayer::new();
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(indicatif_layer)
         .init();
     let args = config::Args::parse();
