@@ -1,6 +1,12 @@
 use reqwest::blocking::Client;
-use reqwest::Error;
 use serde_json::json;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum NotifyError {
+    #[error("notification request failed")]
+    Request(#[from] reqwest::Error),
+}
 
 pub struct BackupNotifier {
     client: Client,
@@ -25,7 +31,7 @@ impl BackupNotifier {
     /// - network errors
     /// - invalid URL
     /// - error status code from server (e.g., 4xx or 5xx)
-    pub fn notify(&self, state: &str) -> Result<(), Error> {
+    pub fn notify(&self, state: &str) -> Result<(), NotifyError> {
         let payload = json!({ "state": state });
 
         self.client
