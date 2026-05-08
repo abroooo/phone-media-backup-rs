@@ -118,11 +118,6 @@ pub fn resolve_destination(
 ) -> Option<ResolvedFile> {
     let ext = helpers::get_extension_from_filename(path_name)?;
     match ext {
-        // TODO: add support for more formats (e.g. mov, heic). Consider using a trait like
-        // trait MediaKind {
-        // fn matches(ext: &str) -> bool;
-        // fn resolve(path: &Path, base: &str, dest: &str) -> Option<ResolvedFile>;
-        // }
         "jpg" | "dng" => {
             let file = File::open(path_name).ok()?;
             let exif = Reader::new()
