@@ -619,14 +619,11 @@ mod tests {
         let mount_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
         let _src = create_file_at(mount_dir.path(), "test_photo.jpg", &jpeg);
-        let dst_path =
-            create_file_at(dst_dir.path(), "2023/07/test_photo.jpg", b"corrupted bytes");
+        let dst_path = create_file_at(dst_dir.path(), "2023/07/test_photo.jpg", b"corrupted bytes");
 
         let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
-        save_files(&cfg, vec!["test_photo.jpg"])
-            .unwrap()
-            .unwrap();
+        save_files(&cfg, vec!["test_photo.jpg"]).unwrap().unwrap();
         let actual = std::fs::read(&dst_path).unwrap();
         assert_eq!(
             actual, jpeg,
@@ -640,9 +637,7 @@ mod tests {
                 mountpoint: mount.to_path_buf(),
             },
             source: Source::default(),
-            destination: config::Destination {
-                path: dst.into(),
-            },
+            destination: config::Destination { path: dst.into() },
             notifier: None,
         }
     }
