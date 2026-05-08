@@ -1,5 +1,7 @@
 # phone-media-backup-rs (`p2r`)
 
+[![CI](https://github.com/abroooo/phone-media-backup-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/abroooo/phone-media-backup-rs/actions/workflows/ci.yml)
+
 > Pull photos and videos off your Android phone over SSH, sort them into a dated tree on your server, and verify every byte — incrementally, and without a cloud account.
 
 ## What & why
