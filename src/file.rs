@@ -956,7 +956,9 @@ mod tests {
                 std::io::ErrorKind::PermissionDenied,
             )),
         };
-        assert!(canon.to_string().starts_with("x.mp4: canonicalize failed: "));
+        assert!(canon
+            .to_string()
+            .starts_with("x.mp4: canonicalize failed: "));
 
         let cmp = VerifyError {
             file: "y.mp4".into(),
