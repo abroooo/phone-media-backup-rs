@@ -41,22 +41,31 @@ fn partial_checksum(path: &Path) -> std::io::Result<u64> {
     Ok(xxh3_64(&buffer))
 }
 
+/// Outcome of comparing a source file against a destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Comparison {
+    Match,
+    Missing,
+    Mismatch,
+}
+
 /// Compare two files using a partial checksum (first and last 64 kB).
 ///
 /// # Errors
 ///
 /// - I/O errors
-pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<bool> {
+pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<Comparison> {
     if !destination.exists() {
-        return Ok(false);
+        return Ok(Comparison::Missing);
     }
     let src_hash = partial_checksum(source)?;
     let dst_hash = partial_checksum(destination)?;
     if src_hash == dst_hash {
         info!("files are identical (checksum match)");
-        return Ok(true);
+        Ok(Comparison::Match)
+    } else {
+        Ok(Comparison::Mismatch)
     }
-    Ok(false)
 }
 
 /// Compare two files byte-by-byte to verify they are identical.
@@ -68,15 +77,15 @@ pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<boo
 /// Note: This is more expensive than `compare_partial` and should only be used after a checksum
 /// match to confirm identity.
 /// The chunk size is defined by `STRICT_BUFFER_SIZE` (64 kB).
-pub fn compare_strict(source: &Path, destination: &Path) -> std::io::Result<bool> {
+pub fn compare_strict(source: &Path, destination: &Path) -> std::io::Result<Comparison> {
     if !destination.exists() {
-        return Ok(false);
+        return Ok(Comparison::Missing);
     }
 
     let m1 = metadata(source)?;
     let m2 = metadata(destination)?;
     if m1.len() != m2.len() {
-        return Ok(false);
+        return Ok(Comparison::Mismatch);
     }
 
     let mut file1 = File::open(source)?;
@@ -94,14 +103,14 @@ pub fn compare_strict(source: &Path, destination: &Path) -> std::io::Result<bool
         file2.read_exact(&mut buffer2[..chunk_size])?;
 
         if buffer1[..chunk_size] != buffer2[..chunk_size] {
-            return Ok(false);
+            return Ok(Comparison::Mismatch);
         }
 
         remaining -= chunk_size;
     }
 
     info!("files are identical (strict match)");
-    Ok(true)
+    Ok(Comparison::Match)
 }
 
 pub struct ResolvedFile {
@@ -169,19 +178,43 @@ pub fn resolve_destination(
     }
 }
 
+/// Outcome of a `verify_files` run, partitioned by failure kind so callers can
+/// surface each bucket separately.
+#[derive(Debug, Default)]
+pub struct VerifyReport {
+    /// source files which dont exist on the destination
+    pub missing: Vec<String>,
+    /// sources files with existing backup but different checksum
+    pub mismatched: Vec<String>,
+    /// source files which couldnt be checked
+    pub errors: Vec<String>,
+    /// number of files which are in the backup and checksum with source matches
+    pub ok: usize,
+    /// number of files skipped because the extension/date could not be resolved.
+    pub skipped: usize,
+}
+
+impl VerifyReport {
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.missing.is_empty() && self.mismatched.is_empty() && self.errors.is_empty()
+    }
+
+    #[must_use]
+    pub fn checked(&self) -> usize {
+        self.ok + self.missing.len() + self.mismatched.len() + self.errors.len()
+    }
+}
+
 /// Verify that all given files have been backed up by checking checksums.
-/// Returns a list of files that are missing or don't match.
 ///
 /// # Panics
 /// - if the embedded progress-bar template fails to parse — unreachable in
 ///   practice since the template is a compile-time constant.
 ///
-pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> {
+pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> VerifyReport {
     let base_dir = &cfg.general.mountpoint;
-    let mut missing: Vec<String> = Vec::new();
-    let mut checked: usize = 0;
-    let mut ok: usize = 0;
-    let mut skipped: usize = 0;
+    let mut report = VerifyReport::default();
     let span = info_span!("verify");
     span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg}").unwrap());
     span.pb_set_length(file_names.len() as u64);
@@ -193,7 +226,7 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
             Ok(p) => p,
             Err(e) => {
                 error!("ERROR accessing {base_name}: {e}");
-                missing.push(base_name.to_string());
+                report.errors.push((*base_name).to_string());
                 continue;
             }
         };
@@ -201,51 +234,59 @@ pub fn verify_files(cfg: &config::MyConfig, file_names: &[&str]) -> Vec<String> 
             Ok(p) => p,
             Err(e) => {
                 error!("canonicalize failed: {} {e}", base_dir.display());
-                missing.push(base_name.to_string());
+                report.errors.push((*base_name).to_string());
                 continue;
             }
         };
         if !path_name.starts_with(&canonical_root) {
             error!("path escape attempt: {}", path_name.display());
-            missing.push(path_name.to_string_lossy().to_string());
+            report.errors.push(path_name.to_string_lossy().into_owned());
             continue;
         }
 
-        match resolve_destination(&cfg.destination.path, base_name, &path_name) {
-            Some(resolved) => {
-                checked += 1;
-                match compare_partial(&path_name, &resolved.dest_path) {
-                    Ok(true) => {
-                        ok += 1;
-                    }
-                    Ok(false) => {
-                        info!(
-                            "MISSING/DIFFERENT: {} -> {}",
-                            &path_name.display(),
-                            resolved.dest_path.display()
-                        );
-                        missing.push(base_name.to_string());
-                    }
-                    Err(e) => {
-                        error!("ERROR checking {}: {}", path_name.display(), e);
-                        missing.push(base_name.to_string());
-                    }
-                }
+        let Some(resolved) = resolve_destination(&cfg.destination.path, base_name, &path_name)
+        else {
+            report.skipped += 1;
+            continue;
+        };
+
+        match compare_partial(&path_name, &resolved.dest_path) {
+            Ok(Comparison::Match) => {
+                report.ok += 1;
             }
-            None => {
-                skipped += 1;
+            Ok(Comparison::Missing) => {
+                info!(
+                    "MISSING: {} -> {}",
+                    path_name.display(),
+                    resolved.dest_path.display()
+                );
+                report.missing.push((*base_name).to_string());
+            }
+            Ok(Comparison::Mismatch) => {
+                info!(
+                    "MISMATCH: {} -> {}",
+                    path_name.display(),
+                    resolved.dest_path.display()
+                );
+                report.mismatched.push((*base_name).to_string());
+            }
+            Err(e) => {
+                error!("ERROR checking {}: {}", path_name.display(), e);
+                report.errors.push((*base_name).to_string());
             }
         }
     }
 
     info!(
-        "\nVerify summary: {} checked, {} ok, {} missing/different, {} skipped (unsupported)",
-        checked,
-        ok,
-        missing.len(),
-        skipped
+        "\nVerify summary: {} checked, {} ok, {} missing, {} mismatched, {} errors, {} skipped (unsupported)",
+        report.checked(),
+        report.ok,
+        report.missing.len(),
+        report.mismatched.len(),
+        report.errors.len(),
+        report.skipped,
     );
-    missing
+    report
 }
 
 enum FileOutcome {
@@ -296,22 +337,26 @@ fn save_one(
 }
 
 fn copy_if_needed(source: &Path, dest: &Path) -> anyhow::Result<()> {
-    if compare_partial(source, dest)
-        .with_context(|| format!("compare_partial {}", source.display()))?
-    {
+    let pre = compare_partial(source, dest)
+        .with_context(|| format!("compare_partial {}", source.display()))?;
+    if pre == Comparison::Match {
         info!("file already exists, skipping: {}", dest.display());
         return Ok(());
     }
 
     info!("copying {} to {}", source.display(), dest.display());
     std::fs::copy(source, dest).with_context(|| format!("copy {}", source.display()))?;
-    if !compare_strict(source, dest)
-        .with_context(|| format!("compare_strict {}", source.display()))?
-    {
+
+    let strict = compare_strict(source, dest)
+        .with_context(|| format!("compare_strict {}", source.display()))?;
+    if strict != Comparison::Match {
         if let Err(e) = std::fs::remove_file(dest) {
             error!("Failed to remove corrupted file {}: {}", dest.display(), e);
         }
-        anyhow::bail!("copied file does not match source: {}", dest.display());
+        anyhow::bail!(
+            "post-copy verification failed ({strict:?}): {}",
+            dest.display()
+        );
     }
     let metadata =
         std::fs::metadata(source).with_context(|| format!("metadata {}", source.display()))?;
@@ -395,7 +440,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"hello world");
-        assert!(compare_partial(&src, &dst,).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Match);
     }
 
     #[test]
@@ -403,7 +448,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"goodbye world");
-        assert!(!compare_partial(&src, &dst,).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Mismatch);
     }
 
     #[test]
@@ -411,7 +456,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello");
         let dst = dir.path().join("nonexistent.bin");
-        assert!(!compare_partial(&src, &dst,).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Missing);
     }
 
     #[test]
@@ -425,7 +470,7 @@ mod tests {
         }
         let src = create_file(&dir, "big_a.bin", &data);
         let dst = create_file(&dir, "big_b.bin", &data);
-        assert!(compare_partial(&src, &dst).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Match);
     }
 
     #[test]
@@ -442,7 +487,7 @@ mod tests {
         let mut data2 = data.clone();
         data2[65536] ^= 0xFF;
         let dst = create_file(&dir, "b.bin", &data2);
-        assert!(!compare_partial(&src, &dst).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Mismatch);
     }
 
     #[test]
@@ -459,7 +504,7 @@ mod tests {
         let len = data2.len();
         data2[len - 1] ^= 0xFF;
         let dst = create_file(&dir, "big_b.bin", &data2);
-        assert!(!compare_partial(&src, &dst).unwrap());
+        assert_eq!(compare_partial(&src, &dst).unwrap(), Comparison::Mismatch);
     }
 
     // --- compare_files: Strict mode ---
@@ -469,7 +514,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"hello world");
-        assert!(compare_strict(&src, &dst).unwrap());
+        assert_eq!(compare_strict(&src, &dst).unwrap(), Comparison::Match);
     }
 
     #[test]
@@ -477,7 +522,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello world");
         let dst = create_file(&dir, "b.bin", b"goodbye world");
-        assert!(!compare_strict(&src, &dst).unwrap());
+        assert_eq!(compare_strict(&src, &dst).unwrap(), Comparison::Mismatch);
     }
 
     #[test]
@@ -485,7 +530,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = create_file(&dir, "a.bin", b"hello");
         let dst = dir.path().join("nonexistent.bin");
-        assert!(!compare_strict(&src, &dst).unwrap());
+        assert_eq!(compare_strict(&src, &dst).unwrap(), Comparison::Missing);
     }
 
     #[test]
@@ -731,8 +776,9 @@ mod tests {
 
         let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
-        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
-        assert!(missing.is_empty());
+        let report = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
+        assert!(report.is_clean());
+        assert_eq!(report.ok, 1);
     }
 
     #[test]
@@ -745,8 +791,11 @@ mod tests {
 
         let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
-        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
-        assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
+        let report = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
+        assert_eq!(report.missing, vec!["PXL_20240315_a.mp4"]);
+        assert!(report.mismatched.is_empty());
+        assert!(report.errors.is_empty());
+        assert_eq!(report.ok, 0);
     }
 
     #[test]
@@ -763,8 +812,11 @@ mod tests {
 
         let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
-        let missing = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
-        assert_eq!(missing, vec!["PXL_20240315_a.mp4"]);
+        let report = verify_files(&cfg, &["PXL_20240315_a.mp4"]);
+        assert_eq!(report.mismatched, vec!["PXL_20240315_a.mp4"]);
+        assert!(report.missing.is_empty());
+        assert!(report.errors.is_empty());
+        assert_eq!(report.ok, 0);
     }
 
     #[test]
@@ -776,7 +828,9 @@ mod tests {
 
         let cfg = test_cfg(mount_dir.path(), dst_dir.path());
 
-        let missing = verify_files(&cfg, &["notes.txt"]);
-        assert!(missing.is_empty());
+        let report = verify_files(&cfg, &["notes.txt"]);
+        assert!(report.is_clean());
+        assert_eq!(report.skipped, 1);
+        assert_eq!(report.ok, 0);
     }
 }

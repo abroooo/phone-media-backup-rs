@@ -276,8 +276,8 @@ fn verify_finds_no_missing_after_backup() {
 
     let files = phone.list_all().unwrap();
     let refs: Vec<&str> = files.iter().map(String::as_str).collect();
-    let missing = file::verify_files(&cfg, &refs);
-    assert!(missing.is_empty(), "unexpected missing: {missing:?}");
+    let report = file::verify_files(&cfg, &refs);
+    assert!(report.is_clean(), "unexpected failures: {report:?}");
 }
 
 #[test]
@@ -294,8 +294,9 @@ fn verify_reports_all_missing_when_dest_empty() {
 
     let files = phone.list_all().unwrap();
     let refs: Vec<&str> = files.iter().map(String::as_str).collect();
-    let missing = file::verify_files(&cfg, &refs);
-    assert_eq!(missing.len(), 1);
+    let report = file::verify_files(&cfg, &refs);
+    assert_eq!(report.missing.len(), 1);
+    assert!(report.mismatched.is_empty());
 }
 
 #[test]

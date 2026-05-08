@@ -69,13 +69,30 @@ pub fn run_verify(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<(
     let file_names = phone.list_all()?;
     let refs: Vec<&str> = file_names.iter().map(String::as_str).collect();
     info!("Verifying {} files", refs.len());
-    let missing = file::verify_files(cfg, &refs);
-    if missing.is_empty() {
+    let report = file::verify_files(cfg, &refs);
+    if report.is_clean() {
         info!("All files verified");
     } else {
-        info!("{} files NOT backed up:", missing.len());
-        for f in &missing {
-            info!("  {f}");
+        if !report.missing.is_empty() {
+            info!("{} files MISSING (no backup):", report.missing.len());
+            for f in &report.missing {
+                info!("  {f}");
+            }
+        }
+        if !report.mismatched.is_empty() {
+            info!(
+                "{} files MISMATCHED (backup content differs):",
+                report.mismatched.len()
+            );
+            for f in &report.mismatched {
+                info!("  {f}");
+            }
+        }
+        if !report.errors.is_empty() {
+            info!("{} files could not be checked:", report.errors.len());
+            for f in &report.errors {
+                info!("  {f}");
+            }
         }
     }
     Ok(())
