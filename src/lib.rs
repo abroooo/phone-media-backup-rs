@@ -9,7 +9,7 @@ pub mod ssh;
 
 pub use ssh::{Mount, Phone, RealPhone, Ssh};
 
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Run the backup process: list new files on the phone, save them to the destination, and update
 /// the marker.
@@ -18,7 +18,6 @@ use tracing::{debug, info};
 /// - invalid date format (not YYYY-MM-DD)
 /// - communication errors with phone (e.g., SSH errors)
 /// - I/O errors when saving files to the destination
-/// - notification errors (e.g., HTTP errors)
 pub fn run_backup(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<()> {
     let notifier = cfg
         .notifier
@@ -26,7 +25,9 @@ pub fn run_backup(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<(
         .map(|n| notifier::BackupNotifier::new(&n.url, &n.token));
 
     if let Some(n) = &notifier {
-        n.notify("in progress")?;
+        if let Err(e) = n.notify("in progress") {
+            warn!("Failed to send 'in progress' notification: {e}");
+        }
     }
 
     let marker = phone.marker()?;
@@ -51,7 +52,9 @@ pub fn run_backup(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<(
     }
 
     if let Some(n) = &notifier {
-        n.notify("success")?;
+        if let Err(e) = n.notify("success") {
+            warn!("Failed to send 'success' notification: {e}");
+        }
     }
     Ok(())
 }
