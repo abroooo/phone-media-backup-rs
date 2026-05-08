@@ -167,6 +167,7 @@ tests/           # integration tests
 - [ ] Select a specific subdirectory of the source path to backup
 - [ ] `info` subcommand (source stats, last backup summary)
 - [ ] Support more file types (e.g. `.heic`, `.avi`)
+- [ ] `verify --strict` flag for full byte-for-byte re-check, plus README note that the default partial-hash check can miss mid-file corruption on pre-existing destinations
 
 ## License
 
