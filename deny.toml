@@ -21,6 +21,12 @@ exceptions = []
 unmaintained = "transitive"
 yanked = "deny"
 
+# RUSTSEC-2024-0449: unsafe-libyaml is unmaintained, pulled in transitively by
+# confy -> serde_yaml. No safe upgrade exists. It is an unmaintained advisory,
+# not a known vulnerability, and the only YAML this binary parses is the local
+# config file authored by the operator. Revisit when confy drops serde_yaml.
+ignore = ["RUSTSEC-2024-0449"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
