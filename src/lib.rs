@@ -9,6 +9,7 @@ pub mod ssh;
 
 pub use ssh::{Mount, Phone, RealPhone, Ssh};
 
+use chrono::{Days, NaiveDate};
 use tracing::{debug, info, warn};
 
 /// Run the backup process: list new files on the phone, save them to the destination, and update
@@ -41,7 +42,7 @@ pub fn run_backup(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<(
         marker.trim().to_string()
     };
 
-    let file_names = phone.list_new(&date)?;
+    let file_names = phone.list_range(Some(&date), None)?;
     let refs: Vec<&str> = file_names.iter().map(String::as_str).collect();
     if let Some(latest_date) = file::save_files(cfg, refs)? {
         let new_marker = latest_date.format("%Y-%m-%d").to_string();
@@ -59,14 +60,35 @@ pub fn run_backup(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<(
     Ok(())
 }
 
-/// Run the verification process: list all files on the phone and check that they have been backed
-/// up.
+/// Run the verification process: list files on the phone (optionally restricted
+/// to a date range based on phone-side mtime) and check that they have been
+/// backed up. Both bounds are inclusive at day granularity; the upper bound is
+/// converted to a half-open `to+1` for the underlying `find -newermt` filter.
 ///
 /// # Errors
 ///
 /// - communication errors with phone (e.g., SSH errors)
-pub fn run_verify(cfg: &config::MyConfig, phone: &dyn Phone) -> anyhow::Result<()> {
-    let file_names = phone.list_all()?;
+pub fn run_verify(
+    cfg: &config::MyConfig,
+    phone: &dyn Phone,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> anyhow::Result<()> {
+    let from_str = from.map(|d| d.format("%Y-%m-%d").to_string());
+    // Inclusive --to D becomes exclusive `find ! -newermt (D+1)`. If D+1
+    // overflows NaiveDate's range, drop the upper bound — effectively open.
+    let to_excl_str = to
+        .and_then(|d| d.checked_add_days(Days::new(1)))
+        .map(|d| d.format("%Y-%m-%d").to_string());
+
+    match (&from_str, &to) {
+        (Some(f), Some(t)) => info!("Verifying files in [{f} .. {t}] (inclusive, phone mtime)"),
+        (Some(f), None) => info!("Verifying files from {f} onwards (inclusive, phone mtime)"),
+        (None, Some(t)) => info!("Verifying files up to {t} (inclusive, phone mtime)"),
+        (None, None) => {}
+    }
+
+    let file_names = phone.list_range(from_str.as_deref(), to_excl_str.as_deref())?;
     let refs: Vec<&str> = file_names.iter().map(String::as_str).collect();
     info!("Verifying {} files", refs.len());
     let report = file::verify_files(cfg, &refs);

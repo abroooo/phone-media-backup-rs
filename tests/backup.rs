@@ -15,10 +15,11 @@ impl Phone for FakePhone {
     fn marker(&self) -> anyhow::Result<String> {
         Ok(self.marker.borrow().clone())
     }
-    fn list_new(&self, _since: &str) -> anyhow::Result<Vec<String>> {
-        Ok(self.files.clone())
-    }
-    fn list_all(&self) -> anyhow::Result<Vec<String>> {
+    fn list_range(
+        &self,
+        _from: Option<&str>,
+        _to_exclusive: Option<&str>,
+    ) -> anyhow::Result<Vec<String>> {
         Ok(self.files.clone())
     }
     fn set_marker(&self, m: &str) -> anyhow::Result<()> {
@@ -274,7 +275,7 @@ fn verify_finds_no_missing_after_backup() {
 
     run_backup(&cfg, &phone).unwrap();
 
-    let files = phone.list_all().unwrap();
+    let files = phone.list_range(None, None).unwrap();
     let refs: Vec<&str> = files.iter().map(String::as_str).collect();
     let report = file::verify_files(&cfg, &refs);
     assert!(report.is_clean(), "unexpected failures: {report:?}");
@@ -292,7 +293,7 @@ fn verify_reports_all_missing_when_dest_empty() {
         ..Default::default()
     };
 
-    let files = phone.list_all().unwrap();
+    let files = phone.list_range(None, None).unwrap();
     let refs: Vec<&str> = files.iter().map(String::as_str).collect();
     let report = file::verify_files(&cfg, &refs);
     assert_eq!(report.missing.len(), 1);

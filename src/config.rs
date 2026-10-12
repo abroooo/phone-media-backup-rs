@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -26,8 +27,8 @@ pub struct Args {
 pub enum Commands {
     /// Save new files from the phone (default when no subcommand is given)
     Backup(BackupArgs),
-    /// Verify that all files on the phone have been backed up
-    Verify,
+    /// Verify that files on the phone have been backed up (default: all)
+    Verify(VerifyArgs),
     /// Delete source files older than `source.clean.older_than_days`
     Clean,
 }
@@ -39,6 +40,43 @@ pub struct BackupArgs {
         help = "After save, also run cleanup. Equivalent to chaining `backup` then `clean`."
     )]
     pub clean: bool,
+}
+
+#[derive(clap::Args, Default, Debug)]
+pub struct VerifyArgs {
+    #[arg(
+        long,
+        value_parser = parse_naive_date,
+        help = "Only verify files with phone mtime on or after this date (YYYY-MM-DD)."
+    )]
+    pub from: Option<NaiveDate>,
+
+    #[arg(
+        long,
+        value_parser = parse_naive_date,
+        help = "Only verify files with phone mtime on or before this date (YYYY-MM-DD)."
+    )]
+    pub to: Option<NaiveDate>,
+}
+
+impl VerifyArgs {
+    /// Reject `--from` later than `--to`.
+    ///
+    /// # Errors
+    /// - if both bounds are set and `from > to`.
+    pub fn validate(&self) -> Result<(), String> {
+        if let (Some(f), Some(t)) = (self.from, self.to) {
+            if f > t {
+                return Err(format!("--from ({f}) must not be after --to ({t})"));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn parse_naive_date(s: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|e| format!("invalid date {s:?} (expected YYYY-MM-DD): {e}"))
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -258,5 +296,67 @@ mod tests {
     fn validate_remote_path_rejects_control_chars() {
         assert!(validate_remote_path("/sdcard\x00").is_err());
         assert!(validate_remote_path("/sdcard\x1b[31m").is_err());
+    }
+
+    #[test]
+    fn parse_naive_date_accepts_iso() {
+        assert_eq!(
+            parse_naive_date("2024-07-15").unwrap(),
+            NaiveDate::from_ymd_opt(2024, 7, 15).unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_naive_date_rejects_bad_input() {
+        assert!(parse_naive_date("2024/07/15").is_err());
+        assert!(parse_naive_date("15-07-2024").is_err());
+        assert!(parse_naive_date("not-a-date").is_err());
+        assert!(parse_naive_date("2024-13-01").is_err());
+    }
+
+    #[test]
+    fn verify_args_validate_ok() {
+        let a = VerifyArgs {
+            from: NaiveDate::from_ymd_opt(2024, 1, 1),
+            to: NaiveDate::from_ymd_opt(2024, 12, 31),
+        };
+        assert!(a.validate().is_ok());
+
+        let a = VerifyArgs {
+            from: NaiveDate::from_ymd_opt(2024, 6, 1),
+            to: NaiveDate::from_ymd_opt(2024, 6, 1),
+        };
+        assert!(a.validate().is_ok(), "equal bounds allowed");
+
+        let a = VerifyArgs {
+            from: None,
+            to: None,
+        };
+        assert!(a.validate().is_ok());
+
+        let a = VerifyArgs {
+            from: NaiveDate::from_ymd_opt(2024, 6, 1),
+            to: None,
+        };
+        assert!(a.validate().is_ok(), "open upper bound allowed");
+
+        let a = VerifyArgs {
+            from: None,
+            to: NaiveDate::from_ymd_opt(2024, 6, 1),
+        };
+        assert!(a.validate().is_ok(), "open lower bound allowed");
+    }
+
+    #[test]
+    fn verify_args_validate_rejects_inverted_range() {
+        let a = VerifyArgs {
+            from: NaiveDate::from_ymd_opt(2024, 12, 31),
+            to: NaiveDate::from_ymd_opt(2024, 1, 1),
+        };
+        let err = a.validate().unwrap_err();
+        assert!(
+            err.contains("--from"),
+            "expected from/to message, got: {err}"
+        );
     }
 }

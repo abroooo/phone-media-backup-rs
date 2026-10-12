@@ -17,7 +17,7 @@ Built because the existing options were either cloud-bound (Google Photos), GUI-
 - 📍 Incremental: a remote marker file scopes each run to "files newer than last time"
 - 🧮 Verify-on-copy: xxh3 of head+tail 64 KiB, then full-file 64 KiB-streamed compare
 - 🧹 Optional source-side cleanup: delete phone-side files older than N days
-- 🔎 `verify` subcommand: re-walks the phone and reports anything missing on the server
+- 🔎 `verify` subcommand: re-walks the phone (optionally restricted to a date range) and reports anything missing on the server
 - 🔔 Optional webhook notifier (e.g. Home Assistant) for backup status
 - 📊 Progress bars + structured logs via `tracing`
 
@@ -112,8 +112,11 @@ cargo build --release
 ./target/release/p2r --config config/myphone.yaml             # backup (default)
 ./target/release/p2r --config config/myphone.yaml backup --clean
 ./target/release/p2r --config config/myphone.yaml verify
+./target/release/p2r --config config/myphone.yaml verify --from 2024-01-01 --to 2024-12-31
 ./target/release/p2r --config config/myphone.yaml clean -n    # dry-run delete
 ```
+
+`verify` accepts optional `--from YYYY-MM-DD` and `--to YYYY-MM-DD` flags. Both bounds are inclusive at day granularity and filter on the phone-side mtime (passed through to `find -newermt`). Either flag may be omitted for an open range; with neither, every file is verified. Note that the phone's mtime may differ from a file's EXIF/PXL date — for camera-produced files they normally match, but a touched file's mtime can drift from the date that drives the backup's folder layout.
 
 Or via Docker (image bundles `sshfs`, docker expects mountpoint to be `/root/sshmount`):
 

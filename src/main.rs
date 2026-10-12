@@ -40,7 +40,12 @@ fn main() -> anyhow::Result<()> {
                 run_clean(&cfg, &phone, args.dry_run)?;
             }
         }
-        config::Commands::Verify => run_verify(&cfg, &phone)?,
+        config::Commands::Verify(v) => {
+            if let Err(e) = v.validate() {
+                anyhow::bail!("invalid verify arguments: {e}");
+            }
+            run_verify(&cfg, &phone, v.from, v.to)?;
+        }
         config::Commands::Clean => run_clean(&cfg, &phone, args.dry_run)?,
     }
     Ok(())

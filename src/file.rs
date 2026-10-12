@@ -61,7 +61,10 @@ pub fn compare_partial(source: &Path, destination: &Path) -> std::io::Result<Com
     let src_hash = partial_checksum(source)?;
     let dst_hash = partial_checksum(destination)?;
     if src_hash == dst_hash {
-        info!("files are identical (checksum match)");
+        info!(
+            "{}: files are identical (checksum match)",
+            source.file_name().unwrap_or_default().to_string_lossy()
+        );
         Ok(Comparison::Match)
     } else {
         Ok(Comparison::Mismatch)

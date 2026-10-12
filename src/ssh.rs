@@ -25,6 +25,26 @@ fn shell_escape(s: &str) -> String {
     out
 }
 
+/// Build the remote `find` command that lists files under `path` whose mtime
+/// falls in the half-open range `[from, to_exclusive)`. Either side may be
+/// omitted for an open bound; with both omitted, lists every file.
+///
+/// Day-level granularity: `find -newermt YYYY-MM-DD` matches files modified at
+/// or after midnight (00:00:00) of that date. A file with an exact-midnight
+/// mtime on the `from` boundary is excluded — a sub-second quirk that does not
+/// arise for camera-produced files in practice.
+fn build_list_range_cmd(path: &str, from: Option<&str>, to_exclusive: Option<&str>) -> String {
+    use std::fmt::Write;
+    let mut cmd = format!("cd {} && find . -type f", shell_escape(path));
+    if let Some(f) = from {
+        let _ = write!(cmd, " -newermt {}", shell_escape(f));
+    }
+    if let Some(t) = to_exclusive {
+        let _ = write!(cmd, " ! -newermt {}", shell_escape(t));
+    }
+    cmd
+}
+
 /// Implementations that dispatch to a remote shell must escape any string
 /// argument they interpolate into a command. Callers may pass arbitrary
 /// strings; impls bear the escaping burden.
@@ -38,22 +58,21 @@ pub trait Phone {
     /// - communication errors with phone (e.g., SSH errors)
     fn marker(&self) -> anyhow::Result<String>;
 
-    /// List files on the phone that are newer than the given date (in YYYY-MM-DD format). The date
-    /// is typically obtained from the marker. Returns a vector of file paths relative to the
-    /// phone's base path.
+    /// List files on the phone whose mtime falls within an optional date range.
+    /// `from` (YYYY-MM-DD) is inclusive at day granularity. `to_exclusive`
+    /// (YYYY-MM-DD) is an exclusive upper bound — callers wanting an inclusive
+    /// upper bound on day D should pass D+1. Either side may be `None` for an
+    /// open range; passing both `None` lists every file.
+    /// Returns paths relative to the phone's base path.
     ///
     /// # Errors
     ///
     /// - communication errors with phone (e.g., SSH errors)
-    fn list_new(&self, since: &str) -> anyhow::Result<Vec<String>>;
-
-    /// List all files on the phone, regardless of modification date. Returns a vector of file
-    /// paths relative to the phone's base path.
-    ///
-    /// # Errors
-    ///
-    /// - communication errors with phone (e.g., SSH errors)
-    fn list_all(&self) -> anyhow::Result<Vec<String>>;
+    fn list_range(
+        &self,
+        from: Option<&str>,
+        to_exclusive: Option<&str>,
+    ) -> anyhow::Result<Vec<String>>;
 
     /// Set the marker on the phone to the given date string (in YYYY-MM-DD format). This is
     /// typically called after a successful backup to update the marker to the latest backup date.
@@ -91,23 +110,13 @@ impl Phone for RealPhone<'_> {
             .execute_command(&format!("cd {} && cat marker", shell_escape(self.path)))
     }
 
-    fn list_new(&self, since: &str) -> anyhow::Result<Vec<String>> {
-        let out = self.ssh.execute_command(&format!(
-            "cd {} && find . -type f -newermt {}",
-            shell_escape(self.path),
-            shell_escape(since)
-        ))?;
-        Ok(out
-            .lines()
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect())
-    }
-
-    fn list_all(&self) -> anyhow::Result<Vec<String>> {
-        let out = self
-            .ssh
-            .execute_command(&format!("cd {} && find . -type f", shell_escape(self.path)))?;
+    fn list_range(
+        &self,
+        from: Option<&str>,
+        to_exclusive: Option<&str>,
+    ) -> anyhow::Result<Vec<String>> {
+        let cmd = build_list_range_cmd(self.path, from, to_exclusive);
+        let out = self.ssh.execute_command(&cmd)?;
         Ok(out
             .lines()
             .filter(|s| !s.is_empty())
@@ -661,5 +670,45 @@ mod tests {
     #[test]
     fn newline_and_specials() {
         assert_eq!(shell_escape("a\nb $c `d`"), "'a\nb $c `d`'");
+    }
+
+    #[test]
+    fn list_range_cmd_no_bounds_lists_all() {
+        let cmd = build_list_range_cmd("/sdcard/DCIM/Camera", None, None);
+        assert_eq!(cmd, "cd '/sdcard/DCIM/Camera' && find . -type f");
+    }
+
+    #[test]
+    fn list_range_cmd_from_only_appends_newermt() {
+        let cmd = build_list_range_cmd("/sdcard", Some("2024-01-01"), None);
+        assert_eq!(cmd, "cd '/sdcard' && find . -type f -newermt '2024-01-01'");
+    }
+
+    #[test]
+    fn list_range_cmd_to_only_appends_not_newermt() {
+        let cmd = build_list_range_cmd("/sdcard", None, Some("2025-01-01"));
+        assert_eq!(
+            cmd,
+            "cd '/sdcard' && find . -type f ! -newermt '2025-01-01'"
+        );
+    }
+
+    #[test]
+    fn list_range_cmd_both_bounds() {
+        let cmd = build_list_range_cmd("/sdcard", Some("2024-01-01"), Some("2025-01-01"));
+        assert_eq!(
+            cmd,
+            "cd '/sdcard' && find . -type f -newermt '2024-01-01' ! -newermt '2025-01-01'"
+        );
+    }
+
+    #[test]
+    fn list_range_cmd_escapes_arguments() {
+        // Defensive: callers are expected to pass validated dates and paths,
+        // but the builder must shell-escape regardless.
+        let cmd = build_list_range_cmd("/a'b", Some("x; rm"), Some("y$z"));
+        assert!(cmd.contains("'/a'\\''b'"));
+        assert!(cmd.contains("'x; rm'"));
+        assert!(cmd.contains("'y$z'"));
     }
 }
